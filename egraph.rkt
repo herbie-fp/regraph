@@ -351,12 +351,11 @@
             (define var (enode-expr varen))
             (define n (length (cdr var)))
             (for ([arg (cdr var)] [i (in-naturals)])
-	      (printf "~a.~a -> ~a.0 [lhead=cluster_~a]\n"
+	      (printf "~a.~a -> ~a.0 [lhead=cluster_~a, tailport=~a]\n"
                       (enode-pid en) vid (enode-pid arg) (enode-pid (pack-leader arg))
-                      #;(cond
-                       [(= i 0) "sw"]
-                       [(= i (- n 1)) "se"]
-                       [else "s"])
-                      ))))
+                      (match* (i n)
+                              [(0 2) "sw"] [(1 2) "se"]
+                              [(0 3) "sw"] [(1 3) "s"] [(2 3) "se"]
+                              [(_ _) "s"])))))
         (printf "}\n")))
   (system (format "dot -Tpng -o ~a.png ~a" fp fp)))
