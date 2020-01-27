@@ -5,7 +5,7 @@
 
 ;; Packaging information
 
-(define pkg-desc "A pure-Racket e-graph implementations")
+(define pkg-desc "A pure-Racket equivalence graph")
 (define pkg-authors
   '("Alex Sanchez-Stern"
     "Pavel Panchekha"))

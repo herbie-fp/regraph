@@ -335,26 +335,28 @@
       fp #:exists 'replace
       (λ ()
 	(printf "digraph {\n")
+        (printf "compound=true;\n")
 	(for ([en (egraph-leaders eg)])
           (define id (enode-pid en))
 
-	  (printf "node~a[label=\"NODE ~a\"]\n" id id)
-	  (for ([varen (pack-members en)] [vid (in-naturals)])
+          (printf "subgraph cluster_~a { \n" id)
+          (printf "  style=filled; color=lightgray;\n")
+          (for ([varen (pack-members en)] [vid (in-naturals)])
             (define var (enode-expr varen))
-	    (printf "node~avar~a[label=\"~a\",shape=box,color=blue]\n"
-		    id vid (if (list? var) (car var) var))
-	    (printf "node~a -> node~avar~a[style=dashed]\n"
-		    id id vid)
-            (when (list? var)
-              (define n (length (cdr var)))
-              (for ([arg (cdr var)] [i (in-naturals)])
-	        (printf "node~avar~a -> node~a[tailport=~a]\n"
-                        id vid
-                        (enode-pid arg)
-                        (cond
-                          [(= i 0) "sw"]
-                          [(= i (- n 1)) "se"]
-                          [else "s"])
-                        )))))
-	(printf "}\n")))
+	    (printf "  ~a.~a[label=\"~a\"]\n"
+		    id vid (if (list? var) (car var) var)))
+          (printf "}\n"))
+        (for ([en (egraph-leaders eg)])
+	  (for ([varen (pack-members en)] [vid (in-naturals)] #:when (list? (enode-expr varen)))
+            (define var (enode-expr varen))
+            (define n (length (cdr var)))
+            (for ([arg (cdr var)] [i (in-naturals)])
+	      (printf "~a.~a -> ~a.0 [lhead=cluster_~a]\n"
+                      (enode-pid en) vid (enode-pid arg) (enode-pid (pack-leader arg))
+                      #;(cond
+                       [(= i 0) "sw"]
+                       [(= i (- n 1)) "se"]
+                       [else "s"])
+                      ))))
+        (printf "}\n")))
   (system (format "dot -Tpng -o ~a.png ~a" fp fp)))
