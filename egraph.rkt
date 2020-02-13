@@ -183,6 +183,7 @@
         (define replaced-iexpr (update-en-expr iexpr))
         (define other-parent (hash-ref expr->parent replaced-iexpr #f))
         (and other-parent
+             (not (eq? (pack-leader other-parent) (pack-leader (hash-ref expr->parent iexpr))))
              (cons other-parent (hash-ref expr->parent iexpr)))))
 
     ;; Now that we have extracted all the information we need from the

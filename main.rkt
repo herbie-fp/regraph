@@ -2,6 +2,8 @@
 
 (require "enode.rkt" "egraph.rkt" "ematch.rkt" "extraction.rkt")
 
+(module+ test (require rackunit))
+
 (provide make-regraph regraph-cost regraph-count regraph-extract
          rule-phase precompute-phase prune-phase extractor-phase)
 
@@ -75,3 +77,60 @@
 
 (define (extractor-phase rg)
   (extractor-iterate (regraph-extractor rg)))
+
+(module+ test
+  (define (test-in-graph exprs rule-pairs check)
+    (define in-rules
+      (for/list ([p rule-pairs])
+        (first p)))
+    (define out-rules
+      (for/list ([p rule-pairs])
+        (second p)))
+    (define regraph (make-regraph exprs #:limit 100))
+    ((rule-phase in-rules out-rules) regraph)
+    (extractor-phase regraph)
+    (check-equal? (regraph-extract regraph) check))
+
+  (define basic-rules
+     `([(+ x 0), `x]))
+
+  
+  (test-in-graph `((+ a 0)) basic-rules `(a))
+
+
+  ;; test that upward merging did its job
+  (define upwards-rules
+    `([(a 1 2) 3]
+      [(b (a 1 2) 4) 6]))
+
+  
+  (test-in-graph
+   `((b (a 1 2) 4))
+   upwards-rules
+   `(6))
+  
+  (test-in-graph
+   `((b 3 4))
+   upwards-rules
+   `((b 3 4)))
+  (test-in-graph
+   `((b 3 4) (b (a 1 2) 4))
+   upwards-rules
+   `(6 6))
+
+
+  (define (random-expr)
+    (if
+     (< 1 (random-integer 0 2))
+     (list (random-integer 0 4) (random-expr) (random-expr))
+     (random-integer 0 80)))
+  (define random-rules-in
+    (for/list ([i (range 5)])
+      (random-expr)))
+  (define random-rules-out
+    (for/list ([i (range 5)])
+      (random-expr)))
+  (define random-exprs
+    (for/list ([i (range 100000)])
+      (random-expr))))
+
