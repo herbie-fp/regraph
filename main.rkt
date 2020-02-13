@@ -2,7 +2,7 @@
 
 (require "enode.rkt" "egraph.rkt" "ematch.rkt" "extraction.rkt")
 
-(module+ test (require rackunit))
+(module+ test (require rackunit math/base))
 
 (provide make-regraph regraph-cost regraph-count regraph-extract
          rule-phase precompute-phase prune-phase extractor-phase)
