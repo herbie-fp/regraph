@@ -153,7 +153,8 @@
     ;; of the same pack. However, this call usually means that two
     ;; vars of this leader were found equivalent through another
     ;; merge, so we want to update the vars to remove the redundancy.
-    (dedup-vars! l1)]
+    (unless (eq? en1 en2)
+      (dedup-vars! l1))]
    [else
     ;; Hold on to these vars as they won't be the same after the
     ;; merge, but we don't yet know which one we need.
