@@ -70,10 +70,11 @@
         (merge-egraph-nodes! eg en en*)))))
 
 (define (prune-phase rg)
-  (define eg (regraph-egraph rg))
-  (define limit (regraph-limit rg))
-  (for ([en (egraph-leaders eg)] #:break (and limit (>= (egraph-cnt eg) limit)))
-    (reduce-to-single! eg en)))
+  (unless #t ;; PRUNING DISABLED
+    (define eg (regraph-egraph rg))
+    (define limit (regraph-limit rg))
+    (for ([en (egraph-leaders eg)] #:break (and limit (>= (egraph-cnt eg) limit)))
+      (reduce-to-single! eg en))))
 
 (define (extractor-phase rg)
   (extractor-iterate (regraph-extractor rg)))
