@@ -4,7 +4,7 @@
 
 (module+ test (require rackunit math/base))
 
-(provide make-regraph regraph-cost regraph-count regraph-extract
+(provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
          rule-phase precompute-phase prune-phase extractor-phase)
 
 (struct regraph (egraph extractor ens limit))
