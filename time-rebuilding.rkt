@@ -84,9 +84,9 @@
    #:render (curry render-regraph-info all-regraphs-math)))
 
 (println "Hamming timing")
-(writeln time-file "")
-(writeln merge-time-file "")
-(writeln rebuild-time-file "")
+(writeln "middle" time-file)
+(writeln "middle" merge-time-file)
+(writeln "middle" rebuild-time-file)
 (for ([i (range NUM_ITERATIONS)])
   (println i)
   (profile-thunk
