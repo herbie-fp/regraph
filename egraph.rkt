@@ -6,7 +6,7 @@
 	 merge-egraph-nodes!
 	 egraph? egraph-cnt
 	 draw-egraph egraph-leaders
-         elim-enode-loops! reduce-to-single!
+         elim-enode-loops! reduce-to-single! merge-time rebuild-time
          )
 
 
@@ -45,6 +45,9 @@
 
 ;; Only ever use leaders as keys!
 (struct egraph (cnt leader->iexprs expr->parent) #:mutable)
+(define merge-time 0)
+(define rebuild-time 0)
+
 
 ;; For debugging
 (define (check-egraph-valid eg #:loc [location 'check-egraph-valid])
@@ -142,67 +145,70 @@
 ;; the leaders of en1 and en2, but the values of those mapping are
 ;; not.
 (define (merge-egraph-nodes! eg en1 en2)
+  (define begin-time (current-inexact-milliseconds))
   (match-define (egraph _ leader->iexprs expr->parent) eg)
   ;; Operate on the pack leaders in case we were passed a non-leader
   (define l1 (pack-leader en1))
   (define l2 (pack-leader en2))
 
-  (cond
-   [(eq? l1 l2)
-    ;; If the leaders are the same, then these nodes are already part
-    ;; of the same pack. However, this call usually means that two
-    ;; vars of this leader were found equivalent through another
-    ;; merge, so we want to update the vars to remove the redundancy.
-    (unless (eq? en1 en2)
-      (dedup-vars! l1))]
-   [else
-    ;; Hold on to these vars as they won't be the same after the
-    ;; merge, but we don't yet know which one we need.
-    (define old-vars1 (enode-vars l1))
-    (define old-vars2 (enode-vars l2))
+  (define res
+    (cond
+      [(eq? l1 l2)
+       ;; If the leaders are the same, then these nodes are already part
+       ;; of the same pack. However, this call usually means that two
+       ;; vars of this leader were found equivalent through another
+       ;; merge, so we want to update the vars to remove the redundancy.
+       (unless (eq? en1 en2)
+         (dedup-vars! l1))]
+      [else
+       ;; Hold on to these vars as they won't be the same after the
+       ;; merge, but we don't yet know which one we need.
+       (define old-vars1 (enode-vars l1))
+       (define old-vars2 (enode-vars l2))
 
-    ;; Merge the node packs
-    (define merged-en (enode-merge! l1 l2))
+       ;; Merge the node packs
+       (define merged-en (enode-merge! l1 l2))
 
-    ;; Now that we know which one became leader, we can bind these.
-    (define-values (leader follower follower-old-vars)
-      (if (eq? l1 merged-en)
-          (values l1 l2 old-vars2)
-          (values l2 l1 old-vars1)))
+       ;; Now that we know which one became leader, we can bind these.
+       (define-values (leader follower follower-old-vars)
+         (if (eq? l1 merged-en)
+             (values l1 l2 old-vars2)
+             (values l2 l1 old-vars1)))
 
-    ;; Get the expressions which mention the follower so we can see if
-    ;; their new form causes new merges.
-    (define iexprs (hash-ref leader->iexprs follower))
+       ;; Get the expressions which mention the follower so we can see if
+       ;; their new form causes new merges.
+       (define iexprs (hash-ref leader->iexprs follower))
 
-    ;; Once we've merged these enodes, other ones might have become
-    ;; equivalent. For example, if we had an enode which had the
-    ;; variation (+ x 1), and an enode which had the variation (+ y
-    ;; 1), and we merged x and y, then we know that these two enodes
-    ;; are equivalent, and should be merged.
-    (define to-merge
-      (for/list ([iexpr (in-mutable-set iexprs)])
-        (define replaced-iexpr (update-en-expr iexpr))
-        (define other-parent (hash-ref expr->parent replaced-iexpr #f))
-        (and other-parent
-             (not (eq? (pack-leader other-parent) (pack-leader (hash-ref expr->parent iexpr))))
-             (cons other-parent (hash-ref expr->parent iexpr)))))
+       ;; Once we've merged these enodes, other ones might have become
+       ;; equivalent. For example, if we had an enode which had the
+       ;; variation (+ x 1), and an enode which had the variation (+ y
+       ;; 1), and we merged x and y, then we know that these two enodes
+       ;; are equivalent, and should be merged.
+       (define to-merge
+         (for/list ([iexpr (in-mutable-set iexprs)])
+           (define replaced-iexpr (update-en-expr iexpr))
+           (define other-parent (hash-ref expr->parent replaced-iexpr #f))
+           (and other-parent
+                (not (eq? (pack-leader other-parent) (pack-leader (hash-ref expr->parent iexpr))))
+                (cons other-parent (hash-ref expr->parent iexpr)))))
 
-    ;; Now that we have extracted all the information we need from the
-    ;; egraph maps in their current state, we are ready to update
-    ;; them. We need to know which one is the old leader, and which is
-    ;; the new to easily do this, so we branch on which one is eq? to
-    ;; merged-en.
-    (update-leader! eg follower-old-vars follower leader)
+       ;; Now that we have extracted all the information we need from the
+       ;; egraph maps in their current state, we are ready to update
+       ;; them. We need to know which one is the old leader, and which is
+       ;; the new to easily do this, so we branch on which one is eq? to
+       ;; merged-en.
+       (update-leader! eg follower-old-vars follower leader)
 
-    ;; Now the state is consistent for this merge, so we can tackle
-    ;; the other merges.
-    (for ([node-pair (in-list to-merge)] #:when node-pair)
-      (merge-egraph-nodes! eg (car node-pair) (cdr node-pair)))
-
-    ;; The other merges can have caused new things to merge with our
-    ;; merged-en from before (due to loops in the egraph), so we turn
-    ;; this into a leader before finally returning it.
-    (pack-leader merged-en)]))
+       ;; Now the state is consistent for this merge, so we can tackle
+       ;; the other merges.
+       (for ([node-pair (in-list to-merge)] #:when node-pair)
+         (merge-egraph-nodes! eg (car node-pair) (cdr node-pair)))
+       ;; The other merges can have caused new things to merge with our
+       ;; merged-en from before (due to loops in the egraph), so we turn
+       ;; this into a leader before finally returning it.
+       (pack-leader merged-en)]))
+  (set! merge-time (+ merge-time (- (current-inexact-milliseconds) begin-time)))
+  res)
 
 (define (update-en-expr expr)
   (if (list? expr)
