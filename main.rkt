@@ -5,7 +5,7 @@
 (module+ test (require rackunit math/base))
 
 (provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
-         rule-phase precompute-phase prune-phase extractor-phase)
+         rule-phase precompute-phase prune-phase extractor-phase find-matches-time)
 
 (struct regraph (egraph extractor ens limit))
 
@@ -33,12 +33,16 @@
 ;; where bindings is a list of different matches between the rule and
 ;; the enode.
 
+(define find-matches-time 0)
 (define (find-matches ens ipats opats)
+  (define begin-time (current-inexact-milliseconds))
   (define out '())
   (for ([ipat ipats] [opat opats] #:when true [en ens])
     (define bindings (match-e ipat en))
     (unless (null? bindings)
       (set! out (cons (list* opat en bindings) out))))
+  (set! find-matches-time
+        (+ find-matches-time (- (current-inexact-milliseconds) begin-time)))
   out)
 
 (define ((rule-phase ipats opats) rg)
