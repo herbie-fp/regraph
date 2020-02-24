@@ -7,14 +7,14 @@
 (provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
          rule-phase precompute-phase prune-phase extractor-phase find-matches-time)
 
-(struct regraph (egraph extractor ens limit))
+(struct regraph (egraph extractor ens limit match-count) #:mutable)
 
 (define (make-regraph exprs #:limit [limit #f])
   (define eg (mk-egraph))
   (define ens (for/list ([expr exprs]) (mk-enode-rec! eg expr)))
   (define ex (apply mk-extractor ens))
   (extractor-iterate ex)
-  (regraph eg ex ens limit))
+  (regraph eg ex ens limit 0))
 
 (define (regraph-cost rg)
   (apply extractor-cost (regraph-extractor rg) (regraph-ens rg)))
@@ -45,11 +45,13 @@
         (+ find-matches-time (- (current-inexact-milliseconds) begin-time)))
   out)
 
-(define ((rule-phase ipats opats) rg)
+(define ((rule-phase ipats opats #:match-limit [match-limit #f]) rg)
   (define eg (regraph-egraph rg))
   (define limit (regraph-limit rg))
   (for* ([m (find-matches (egraph-leaders eg) ipats opats)]
-         #:break (and limit (>= (egraph-cnt eg) limit)))
+         #:break (or (and limit (>= (egraph-cnt eg) limit))
+                     (and match-limit (> (regraph-match-count rg) match-limit))))
+    (set-regraph-match-count! rg (+ (regraph-match-count rg) 1))
     (match-define (list opat en bindings ...) m)
     (for ([binding bindings] #:break (and limit (>= (egraph-cnt eg) limit)))
       (define expr* (substitute-e opat binding))
