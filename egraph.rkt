@@ -144,7 +144,14 @@
 ;; expr->parent are updated to refer to the merged leader instead of
 ;; the leaders of en1 and en2, but the values of those mapping are
 ;; not.
+(define started-merge #f)
 (define (merge-egraph-nodes! eg en1 en2)
+  (define already-started
+    started-merge)
+  (set! started-merge #t)
+     
+   
+   
   (define begin-time (current-inexact-milliseconds))
   (match-define (egraph _ leader->iexprs expr->parent) eg)
   ;; Operate on the pack leaders in case we were passed a non-leader
@@ -207,7 +214,9 @@
        ;; merged-en from before (due to loops in the egraph), so we turn
        ;; this into a leader before finally returning it.
        (pack-leader merged-en)]))
-  (set! merge-time (+ merge-time (- (current-inexact-milliseconds) begin-time)))
+  (unless already-started
+    (set! merge-time (+ merge-time (- (current-inexact-milliseconds) begin-time)))
+    (set! started-merge false))
   res)
 
 (define (update-en-expr expr)
