@@ -219,12 +219,6 @@
     (set! started-merge false))
   res)
 
-(define (update-en-expr expr)
-  (if (list? expr)
-      (for/list ([sub (in-list expr)])
-        (if (enode? sub) (pack-leader sub) sub))
-      expr))
-
 (define (update-leader! eg old-vars old-leader new-leader)
   (when (not (eq? old-leader new-leader))
     (let* ([changed-exprs (hash-ref (egraph-leader->iexprs eg) old-leader)])
