@@ -38,6 +38,9 @@
 
 (define find-matches-time 0)
 (define (find-matches ens ipats opats)
+  (for ([en ens])
+    (refresh-vars! en))
+  
   (define begin-time (current-inexact-milliseconds))
   (define out '())
   (for ([ipat ipats] [opat opats] #:when true [en ens])

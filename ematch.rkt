@@ -33,7 +33,6 @@
       #f))
 
 (define (match-e pat e)
-  (refresh-vars! e)
   (cond
    [(symbol? pat)
     `(((,pat . ,e)))]
