@@ -5,7 +5,7 @@
 (module+ test (require rackunit math/base))
 
 (provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
-         rule-phase precompute-phase prune-phase extractor-phase find-matches-time regraph-match-count)
+         rule-phase precompute-phase prune-phase extractor-phase find-matches-time regraph-match-count regraph-eclass-count)
 
 (struct regraph (egraph extractor ens limit match-count) #:mutable)
 
@@ -15,6 +15,9 @@
   (define ex (apply mk-extractor ens))
   (extractor-iterate ex)
   (regraph eg ex ens limit 0))
+
+(define (regraph-eclass-count rg)
+  (length (egraph-leaders (regraph-egraph rg))))
 
 (define (regraph-cost rg)
   (apply extractor-cost (regraph-extractor rg) (regraph-ens rg)))
