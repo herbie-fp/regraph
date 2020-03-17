@@ -136,7 +136,7 @@
 
 (define (dedup-vars! en)
   (update-vars! (pack-leader en) update-en-expr)
-  (dedup-children! en))
+  (dedup-children! (pack-leader en)))
 
 ;; Given an egraph and two enodes present in that egraph, merge the
 ;; packs of those two nodes, so that those nodes return the same
