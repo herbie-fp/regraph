@@ -17,7 +17,7 @@
   (regraph eg ex ens limit 0))
 
 (define (regraph-eclass-count rg)
-  (length (egraph-leaders (regraph-egraph rg))))
+  (length (set->list (list->set (egraph-leaders (regraph-egraph rg))))))
 
 (define (regraph-cost rg)
   (apply extractor-cost (regraph-extractor rg) (regraph-ens rg)))
