@@ -164,7 +164,9 @@
       en)))
 
 (define (dedup-children! en)
-  (set-enode-children! en (remove-duplicates (enode-children en) #:key enode-expr)))
+  (set-enode-children! en (rest (remove-duplicates
+                                 (cons en (enode-children en))
+                                 #:key enode-expr))))
 
 ;; Updates the expressions in the pack, using a specified updater.
 (define (update-vars! en updater)
