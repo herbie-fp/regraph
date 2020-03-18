@@ -1,6 +1,8 @@
 #lang racket
 
 (require "enode.rkt" "egraph.rkt" "ematch.rkt" "extraction.rkt")
+(require debug/repl)
+
 
 (module+ test (require rackunit math/base))
 
@@ -51,9 +53,11 @@
         (+ find-matches-time (- (current-inexact-milliseconds) begin-time)))
   out)
 
-(define ((rule-phase ipats opats #:match-limit [match-limit #f]) rg)
+(define ((rule-phase ipats opats #:match-limit [match-limit #f] #:debug? [debug? #f]) rg)
   (define eg (regraph-egraph rg))
   (define limit (regraph-limit rg))
+  (when debug?
+    (debug-repl))
   (for* ([m (find-matches (egraph-leaders eg) ipats opats)]
          #:break (or (and limit (>= (egraph-cnt eg) limit))
                      (and match-limit (> (regraph-match-count rg) match-limit))))
