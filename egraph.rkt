@@ -97,24 +97,22 @@
 ;; an existing node or otherwise attached to some node to be
 ;; completely added to the egraph.
 (define (mk-enode! eg expr)
-  (if (hash-has-key? (egraph-expr->parent eg) expr)
-      (let ([res (hash-ref (egraph-expr->parent eg) expr)])
-	(pack-leader res))
-      (let* ([expr* (if (not (list? expr)) expr
-			(cons (car expr)
-			      (map pack-leader (cdr expr))))]
-	     [en (new-enode expr* (egraph-cnt eg))]
-	     [leader->iexprs (egraph-leader->iexprs eg)])
- 	(set-egraph-cnt! eg (add1 (egraph-cnt eg)))
-	(hash-set! leader->iexprs en (mutable-set))
-	(when (list? expr*)
-	  (for ([suben (in-list (cdr expr*))])
-	    (set-add! (hash-ref leader->iexprs (pack-leader suben))
-		      expr*)))
-	(hash-set! (egraph-expr->parent eg)
-		   expr*
-		   en)
-	en)))
+  (let ([expr* (update-en-expr expr)])
+    (if (hash-has-key? (egraph-expr->parent eg) expr*)
+        (let ([res (hash-ref (egraph-expr->parent eg) expr*)])
+          (pack-leader res))
+        (let* ([en (new-enode expr* (egraph-cnt eg))]
+               [leader->iexprs (egraph-leader->iexprs eg)])
+          (set-egraph-cnt! eg (add1 (egraph-cnt eg)))
+          (hash-set! leader->iexprs en (mutable-set))
+          (when (list? expr*)
+            (for ([suben (in-list (cdr expr*))])
+              (set-add! (hash-ref leader->iexprs (pack-leader suben))
+                        expr*)))
+          (hash-set! (egraph-expr->parent eg)
+                     expr*
+                     en)
+          en))))
 
 (define (mk-enode-rec! eg expr)
   (match expr
