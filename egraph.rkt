@@ -233,6 +233,7 @@
           (hash-set! (egraph-expr->parent eg) (update-en-expr ch-expr) (update-en-expr old-binding))))
       (hash-remove! (egraph-leader->iexprs eg) old-leader)
       (for ([variation (in-set old-vars)])
+        (hash-remove! (egraph-expr->parent eg) variation)
         (hash-set! (egraph-expr->parent eg)
                    (update-en-expr variation)
                    new-leader)))))
