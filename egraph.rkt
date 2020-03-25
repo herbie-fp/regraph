@@ -183,19 +183,27 @@
        ;; Get the expressions which mention the follower so we can see if
        ;; their new form causes new merges.
        (define iexprs (hash-ref leader->iexprs follower))
+       ;; get the parents of these expressions before we update expr->parent
+       (define iparents
+         (for/list ([iexpr iexprs])
+           (hash-ref expr->parent iexpr)))
+                                  
 
+       ;; update expr->parent so we can get accurate parents
+       (update-expr->parent! eg follower-old-vars follower leader)
+       
        ;; Once we've merged these enodes, other ones might have become
        ;; equivalent. For example, if we had an enode which had the
        ;; variation (+ x 1), and an enode which had the variation (+ y
        ;; 1), and we merged x and y, then we know that these two enodes
        ;; are equivalent, and should be merged.
        (define to-merge
-         (for/list ([iexpr (in-mutable-set iexprs)])
+         (for/list ([iexpr (in-mutable-set iexprs)] [iparent iparents])
            (define replaced-iexpr (update-en-expr iexpr))
            (define other-parent (hash-ref expr->parent replaced-iexpr #f))
            (and other-parent
-                (not (eq? (pack-leader other-parent) (pack-leader (hash-ref expr->parent iexpr))))
-                (cons other-parent (hash-ref expr->parent iexpr)))))
+                (not (eq? (pack-leader other-parent) (pack-leader iparent)))
+                (cons other-parent iparent))))
 
        ;; Now that we have extracted all the information we need from the
        ;; egraph maps in their current state, we are ready to update
@@ -217,6 +225,20 @@
     (set! started-merge false))
   res)
 
+(define (update-expr->parent! eg old-vars old-leader new-leader)
+  (when (not (eq? old-leader new-leader))
+    (let* ([changed-exprs (hash-ref (egraph-leader->iexprs eg) old-leader)])
+      (for ([ch-expr (in-mutable-set changed-exprs)])
+        (let ([old-binding (hash-ref (egraph-expr->parent eg) ch-expr)])
+          (hash-remove! (egraph-expr->parent eg) ch-expr)
+          (hash-set! (egraph-expr->parent eg) (update-en-expr ch-expr) (pack-leader old-binding))))
+      (for ([variation (in-set old-vars)])
+        (hash-remove! (egraph-expr->parent eg) variation)
+        (hash-set! (egraph-expr->parent eg)
+                   (update-en-expr variation)
+                   new-leader)))))
+    
+
 (define (update-leader! eg old-vars old-leader new-leader)
   (when (not (eq? old-leader new-leader))
     (let* ([changed-exprs (hash-ref (egraph-leader->iexprs eg) old-leader)])
@@ -227,16 +249,8 @@
           (hash-update! (egraph-leader->iexprs eg) (pack-leader suben)
                         (λ (st)
                           (for/mutable-set ([expr (in-mutable-set st)])
-                            (update-en-expr expr)))))
-        (let ([old-binding (hash-ref (egraph-expr->parent eg) ch-expr)])
-          (hash-remove! (egraph-expr->parent eg) ch-expr)
-          (hash-set! (egraph-expr->parent eg) (update-en-expr ch-expr) (pack-leader old-binding))))
-      (hash-remove! (egraph-leader->iexprs eg) old-leader)
-      (for ([variation (in-set old-vars)])
-        (hash-remove! (egraph-expr->parent eg) variation)
-        (hash-set! (egraph-expr->parent eg)
-                   (update-en-expr variation)
-                   new-leader)))))
+                            (update-en-expr expr))))))
+      (hash-remove! (egraph-leader->iexprs eg) old-leader))))
 
 ;; Eliminates looping paths in the egraph that contain en. Does not
 ;; work if there are other looping paths.
@@ -336,6 +350,7 @@
                       (not (list? (enode-expr inner-en))))
                     leader))
     (when (not (eq? leader leader*))
+      (update-expr->parent! eg old-vars leader leader*)
       (update-leader! eg old-vars leader leader*))))
 
 ;; Draws a representation of the egraph to the output file specified
