@@ -189,21 +189,9 @@
            (hash-ref expr->parent iexpr)))
                                   
 
-       ;; update expr->parent so we can get accurate parents
-       (update-expr->parent! eg follower-old-vars follower leader)
-       
-       ;; Once we've merged these enodes, other ones might have become
-       ;; equivalent. For example, if we had an enode which had the
-       ;; variation (+ x 1), and an enode which had the variation (+ y
-       ;; 1), and we merged x and y, then we know that these two enodes
-       ;; are equivalent, and should be merged.
+       ;; update expr->parent, discovering parent nodes to merge
        (define to-merge
-         (for/list ([iexpr (in-mutable-set iexprs)] [iparent iparents])
-           (define replaced-iexpr (update-en-expr iexpr))
-           (define other-parent (hash-ref expr->parent replaced-iexpr #f))
-           (and other-parent
-                (not (eq? (pack-leader other-parent) (pack-leader iparent)))
-                (cons other-parent iparent))))
+         (update-expr->parent! eg follower-old-vars follower leader))
 
        ;; Now that we have extracted all the information we need from the
        ;; egraph maps in their current state, we are ready to update
@@ -226,18 +214,33 @@
   res)
 
 (define (update-expr->parent! eg old-vars old-leader new-leader)
-  (when (not (eq? old-leader new-leader))
-    (let* ([changed-exprs (hash-ref (egraph-leader->iexprs eg) old-leader)])
-      (for ([ch-expr (in-mutable-set changed-exprs)])
-        (let ([old-binding (hash-ref (egraph-expr->parent eg) ch-expr)])
-          (hash-remove! (egraph-expr->parent eg) ch-expr)
-          (hash-set! (egraph-expr->parent eg) (update-en-expr ch-expr) (pack-leader old-binding))))
-      (for ([variation (in-set old-vars)])
-        (hash-remove! (egraph-expr->parent eg) variation)
-        (hash-set! (egraph-expr->parent eg)
-                   (update-en-expr variation)
-                   new-leader)))))
-    
+  (if (not (eq? old-leader new-leader))
+      (let* ([changed-exprs (hash-ref (egraph-leader->iexprs eg) old-leader)])
+        (define to-merge
+          (for/list ([ch-expr (in-mutable-set changed-exprs)])
+            (update-changed-expr eg ch-expr)))
+        
+        (for ([variation (in-set old-vars)])
+          (hash-remove! (egraph-expr->parent eg) variation)
+          (hash-set! (egraph-expr->parent eg)
+                     (update-en-expr variation)
+                     new-leader))
+        to-merge)
+      empty))
+
+;; checks if we need to upwards merge two eclasses due to a changed expression
+(define (update-changed-expr eg ch-expr)
+  (define old-binding (hash-ref (egraph-expr->parent eg) ch-expr))
+  (define replaced-iexpr (update-en-expr ch-expr))
+  (define other-parent (hash-ref (egraph-expr->parent eg) replaced-iexpr #f))
+  (define merge-pair
+    (and other-parent
+         (not (eq? (pack-leader other-parent) (pack-leader old-binding)))
+         (cons other-parent old-binding)))
+  
+  (hash-remove! (egraph-expr->parent eg) ch-expr)
+  (hash-set! (egraph-expr->parent eg) replaced-iexpr (pack-leader old-binding))
+  merge-pair)
 
 (define (update-leader! eg old-vars old-leader new-leader)
   (when (not (eq? old-leader new-leader))
