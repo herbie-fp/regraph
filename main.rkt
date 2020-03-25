@@ -7,16 +7,19 @@
 (module+ test (require rackunit math/base))
 
 (provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
-         rule-phase precompute-phase prune-phase extractor-phase find-matches-time regraph-match-count regraph-eclass-count)
+         rule-phase precompute-phase prune-phase extractor-phase find-matches-time
+         regraph-match-count regraph-eclass-count rebuild-phase)
 
-(struct regraph (egraph extractor ens limit match-count) #:mutable)
+(struct regraph (egraph extractor ens limit match-count rebuilding-enabled?) #:mutable)
 
-(define (make-regraph exprs #:limit [limit #f])
+(define (make-regraph exprs
+                      #:limit [limit #f]
+                      #:rebuilding-enabled? [rebuilding-enabled? #t])
   (define eg (mk-egraph))
   (define ens (for/list ([expr exprs]) (mk-enode-rec! eg expr)))
   (define ex (apply mk-extractor ens))
   (extractor-iterate ex)
-  (regraph eg ex ens limit 0))
+  (regraph eg ex ens limit 0 rebuilding-enabled?))
 
 (define (regraph-eclass-count rg)
   (length (set->list (list->set (egraph-leaders (regraph-egraph rg))))))
@@ -66,7 +69,7 @@
     (for ([binding bindings] #:break (and limit (>= (egraph-cnt eg) limit)))
       (define expr* (substitute-e opat binding))
       (define en* (mk-enode-rec! eg expr*))
-      (merge-egraph-nodes! eg en en*))))
+      (merge-egraph-nodes! eg en en* (regraph-rebuilding-enabled? rg)))))
 
 (define ((precompute-phase fn) rg)
   (define eg (regraph-egraph rg))
@@ -74,6 +77,9 @@
   (for ([en (egraph-leaders eg)]
         #:break (and limit (>= (egraph-cnt eg) limit)))
     (set-precompute! eg en fn)))
+
+(define ((rebuild-phase) rg)
+  (egraph-rebuild (regraph-egraph rg)))
 
 (define (set-precompute! eg en fn)
   (for ([var (enode-vars en)] #:when (list? var))
@@ -83,14 +89,13 @@
       (define constant (apply fn op args))
       (when constant
         (define en* (mk-enode-rec! eg constant))
-        (merge-egraph-nodes! eg en en*)))))
+        (merge-egraph-nodes! eg en en* (regraph-rebuilding-enabled? rg))))))
 
 (define (prune-phase rg)
-  (unless #t ;; PRUNING DISABLED
-    (define eg (regraph-egraph rg))
-    (define limit (regraph-limit rg))
-    (for ([en (egraph-leaders eg)] #:break (and limit (>= (egraph-cnt eg) limit)))
-      (reduce-to-single! eg en))))
+  (define eg (regraph-egraph rg))
+  (define limit (regraph-limit rg))
+  (for ([en (egraph-leaders eg)] #:break (and limit (>= (egraph-cnt eg) limit)))
+    (reduce-to-single! eg en (regraph-rebuilding-enabled? rg))))
 
 (define (extractor-phase rg)
   (extractor-iterate (regraph-extractor rg)))

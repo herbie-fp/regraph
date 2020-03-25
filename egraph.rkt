@@ -18,7 +18,7 @@
 ;;# also keep track of where each enode pack is referenced (expressions), and
 ;;# for each expression, which enode pack has it as a (enode-var).
 ;;#
-;;# The following things should always be true of egraphs:
+;;# The following things should always be true of egraphs with upwards merging:
 ;;# 1. (egraph-cnt eg) is a positive integer.
 ;;# 3. For each enode en which is a key of leader->iexprs, en is the leader of
 ;;#    its own pack.
@@ -35,6 +35,12 @@
 ;;#    equality.
 ;;#
 ;;#
+;;#  Rebuilding breaks:
+;;#  - Number 7
+;;#  - Parent pointers in leader->iexprs. Leader->iexprs still has all the leaders as keys
+;;#  - Congruence closure after merging eclasses, until the end of the rule phase when
+;;#  rebuild fixes it.
+;;#
 ;;#  Note: While the keys of leader->iexprs and the enodes referenced by the keys
 ;;#  of expr->parent are guaranteed to be leaders, the values of expr->parent,
 ;;#  and the enodes referenced by the values of leadders->iexprs are not.
@@ -47,6 +53,36 @@
 (struct egraph (cnt leader->iexprs expr->parent) #:mutable)
 (define merge-time 0)
 (define rebuild-time 0)
+
+
+(define (egraph-rebuild eg)
+  (define before-time (current-inexact-milliseconds))
+  (define res
+    (egraph-rebuild-loop eg))
+  (set! rebuild-time (+ rebuild-time (- (current-inexact-milliseconds) before-time)))
+  res)
+
+(define (egraph-rebuild-loop eg)
+  (unless (equal? (egraph-rebuild-once eg) 0)
+    (egraph-rebuild-loop eg)))
+
+(define (egraph-rebuild-once eg)
+  (define new-memo (make-hash))
+  (define to-union empty)
+  ;; loop over all exprs and add them
+  (for ([(leader _iexprs) (egraph-leader->iexprs eg)])
+    (for ([node (cons leader (enode-children leader))])
+      (define expr (update-en-expr (enode-expr node)))
+      (define old-leader
+        (hash-ref new-memo expr #f))
+      (hash-set! new-memo expr leader)
+      (unless (or (equal? old-leader #f) (equal? old-leader leader))
+        (set! to-union (cons (list old-leader leader) to-union)))))
+  
+  (for ([pair to-union])
+    (merge-egraph-nodes! eg (first pair) (second pair) #t)
+    (dedup-vars! (first pair)))
+  (length to-union))
 
 
 ;; For debugging
@@ -143,7 +179,7 @@
 ;; the leaders of en1 and en2, but the values of those mapping are
 ;; not.
 (define started-merge #f)
-(define (merge-egraph-nodes! eg en1 en2)
+(define (merge-egraph-nodes! eg en1 en2 rebuilding-enabled?)
   (define already-started
     started-merge)
   (set! started-merge #t)
@@ -180,30 +216,25 @@
              (values l1 l2 old-vars2)
              (values l2 l1 old-vars1)))
 
-       ;; Get the expressions which mention the follower so we can see if
-       ;; their new form causes new merges.
-       (define iexprs (hash-ref leader->iexprs follower))
-       ;; get the parents of these expressions before we update expr->parent
-       (define iparents
-         (for/list ([iexpr iexprs])
-           (hash-ref expr->parent iexpr)))
-                                  
+       (unless rebuilding-enabled?
+         ;; update expr->parent, discovering parent nodes to merge
+         (define to-merge
+           (update-expr->parent! eg follower-old-vars follower leader))
 
-       ;; update expr->parent, discovering parent nodes to merge
-       (define to-merge
-         (update-expr->parent! eg follower-old-vars follower leader))
+         ;; Now that we have extracted all the information we need from the
+         ;; egraph maps in their current state, we are ready to update
+         ;; them. We need to know which one is the old leader, and which is
+         ;; the new to easily do this, so we branch on which one is eq? to
+         ;; merged-en.
+         (update-leader! eg follower-old-vars follower leader)
 
-       ;; Now that we have extracted all the information we need from the
-       ;; egraph maps in their current state, we are ready to update
-       ;; them. We need to know which one is the old leader, and which is
-       ;; the new to easily do this, so we branch on which one is eq? to
-       ;; merged-en.
-       (update-leader! eg follower-old-vars follower leader)
+         ;; Now the state is consistent for this merge, so we can tackle
+         ;; the other merges.
+         (for ([node-pair (in-list to-merge)] #:when node-pair)
+           (merge-egraph-nodes! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
 
-       ;; Now the state is consistent for this merge, so we can tackle
-       ;; the other merges.
-       (for ([node-pair (in-list to-merge)] #:when node-pair)
-         (merge-egraph-nodes! eg (car node-pair) (cdr node-pair)))
+       (hash-remove! (egraph-leader->iexprs eg) follower)
+       
        ;; The other merges can have caused new things to merge with our
        ;; merged-en from before (due to loops in the egraph), so we turn
        ;; this into a leader before finally returning it.
@@ -342,7 +373,7 @@
 
 ;; If there are any variations of this enode that are a single
 ;; constant or variable, prune to that.
-(define (reduce-to-single! eg en)
+(define (reduce-to-single! eg en rebuilding-enabled?)
   (when (enode-atom en)
     (define leader (pack-leader en))
     (define old-vars
@@ -352,7 +383,7 @@
       (pack-filter! (λ (inner-en)
                       (not (list? (enode-expr inner-en))))
                     leader))
-    (when (not (eq? leader leader*))
+    (when (and (not rebuilding-enabled?) (not (eq? leader leader*)))
       (update-expr->parent! eg old-vars leader leader*)
       (update-leader! eg old-vars leader leader*))))
 
