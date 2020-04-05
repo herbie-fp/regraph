@@ -6,7 +6,9 @@
 	 merge-egraph-nodes!
 	 egraph? egraph-cnt
 	 draw-egraph egraph-leaders
-         elim-enode-loops! reduce-to-single! merge-time rebuild-time
+         elim-enode-loops! reduce-to-single!
+         merge-time rebuild-time
+         egraph-rebuild
          )
 
 

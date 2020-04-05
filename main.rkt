@@ -76,12 +76,12 @@
   (define limit (regraph-limit rg))
   (for ([en (egraph-leaders eg)]
         #:break (and limit (>= (egraph-cnt eg) limit)))
-    (set-precompute! eg en fn)))
+    (set-precompute! eg en fn (regraph-rebuilding-enabled? rg))))
 
 (define ((rebuild-phase) rg)
   (egraph-rebuild (regraph-egraph rg)))
 
-(define (set-precompute! eg en fn)
+(define (set-precompute! eg en fn rebuilding-enabled?)
   (for ([var (enode-vars en)] #:when (list? var))
     (define op (car var))
     (define args (map enode-atom (cdr var)))
@@ -89,7 +89,7 @@
       (define constant (apply fn op args))
       (when constant
         (define en* (mk-enode-rec! eg constant))
-        (merge-egraph-nodes! eg en en* (regraph-rebuilding-enabled? rg))))))
+        (merge-egraph-nodes! eg en en* rebuilding-enabled?)))))
 
 (define (prune-phase rg)
   (define eg (regraph-egraph rg))

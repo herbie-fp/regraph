@@ -1,7 +1,8 @@
 #lang racket
 
 (provide new-enode enode-merge!
-	 enode-vars refresh-vars! enode-pid
+	 enode-vars refresh-vars!
+         enode-children enode-pid
 	 enode? enode-atom
 	 enode-expr
 	 pack-leader pack-members
