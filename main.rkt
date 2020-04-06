@@ -138,21 +138,5 @@
   (test-in-graph
    `((b 3 4) (b (a 1 2) 4))
    upwards-rules
-   `(6 6))
-
-
-  (define (random-expr)
-    (if
-     (< 1 (random-integer 0 2))
-     (list (random-integer 0 4) (random-expr) (random-expr))
-     (random-integer 0 80)))
-  (define random-rules-in
-    (for/list ([i (range 5)])
-      (random-expr)))
-  (define random-rules-out
-    (for/list ([i (range 5)])
-      (random-expr)))
-  (define random-exprs
-    (for/list ([i (range 100000)])
-      (random-expr))))
+   `(6 6)))
 
