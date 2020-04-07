@@ -237,19 +237,17 @@
   (enode-cvars (pack-leader en)))
 
 (define (update-en-expr expr)
-  (if (list? expr)
-      (for/list ([sub (in-list expr)])
-        (if (enode? sub) (pack-leader sub) sub))
-      expr))
-
+  (match expr
+    [(list op args ...)
+     (cons op (map pack-leader args))]
+    [_ expr]))
 
 ;; Removes duplicates from the varset of this node.
 (define (refresh-vars! en)
   (set-enode-cvars!
    en
-   (list->set
-    (for/list ([cvars (enode-cvars en)])
-      (update-en-expr cvars)))))
+   (for/set ([cvars (in-set (enode-cvars en))])
+     (update-en-expr cvars))))
 
 ;; Returns the pack ID of the pack of the given enode.
 (define (enode-pid en)

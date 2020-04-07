@@ -8,7 +8,7 @@
 
 (provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
          rule-phase precompute-phase prune-phase extractor-phase find-matches-time
-         regraph-match-count regraph-eclass-count rebuild-phase)
+         regraph-match-count regraph-eclass-count rebuild-phase regraph-rebuilding-enabled?)
 
 (struct regraph (egraph extractor ens limit match-count rebuilding-enabled?) #:mutable)
 
