@@ -1,18 +1,33 @@
 #lang racket
 
 (require "enode.rkt" "egraph.rkt" "ematch.rkt" "extraction.rkt")
+(require debug/repl)
 
-(provide make-regraph regraph-cost regraph-count regraph-extract
-         rule-phase precompute-phase prune-phase extractor-phase)
 
-(struct regraph (egraph extractor ens limit))
+(module+ test (require rackunit math/base))
 
-(define (make-regraph exprs #:limit [limit #f])
+(provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
+         regraph-rinfo rinfo rinfo-match-count rinfo-search-time rinfo-rebuild-time
+         rule-phase precompute-phase prune-phase extractor-phase
+         regraph-eclass-count rebuild-phase regraph-rebuilding-enabled?)
+
+(struct rinfo (match-count search-time rebuild-time) #:mutable)
+(struct regraph (egraph extractor ens limit rinfo rebuilding-enabled?) #:mutable)
+
+(define (make-rinfo)
+  (rinfo 0 0 0))
+
+(define (make-regraph exprs
+                      #:limit [limit #f]
+                      #:rebuilding-enabled? [rebuilding-enabled? #t])
   (define eg (mk-egraph))
   (define ens (for/list ([expr exprs]) (mk-enode-rec! eg expr)))
   (define ex (apply mk-extractor ens))
   (extractor-iterate ex)
-  (regraph eg ex ens limit))
+  (regraph eg ex ens limit (make-rinfo) rebuilding-enabled?))
+
+(define (regraph-eclass-count rg)
+  (length (egraph-leaders (regraph-egraph rg))))
 
 (define (regraph-cost rg)
   (apply extractor-cost (regraph-extractor rg) (regraph-ens rg)))
@@ -32,6 +47,10 @@
 ;; the enode.
 
 (define (find-matches ens ipats opats)
+  (for ([en ens])
+    (refresh-vars! en))
+  
+  
   (define out '())
   (for ([ipat ipats] [opat opats] #:when true [en ens])
     (define bindings (match-e ipat en))
@@ -39,25 +58,45 @@
       (set! out (cons (list* opat en bindings) out))))
   out)
 
-(define ((rule-phase ipats opats) rg)
+(define ((rule-phase ipats opats #:match-limit [match-limit #f] #:debug? [debug? #f]) rg)
   (define eg (regraph-egraph rg))
   (define limit (regraph-limit rg))
-  (for* ([m (find-matches (egraph-leaders eg) ipats opats)]
-         #:break (and limit (>= (egraph-cnt eg) limit)))
+  (when debug?
+    (debug-repl))
+  (define search-start-time (current-inexact-milliseconds))
+  (define matches (find-matches (egraph-leaders eg) ipats opats))
+  (set-rinfo-search-time!
+   (regraph-rinfo rg)
+   (+ (rinfo-search-time (regraph-rinfo rg))
+      (- (current-inexact-milliseconds) search-start-time)))
+      
+  
+  (for* ([m matches]
+         #:break (or (and limit (>= (egraph-cnt eg) limit))
+                     (and match-limit (> (rinfo-match-count (regraph-rinfo rg)) match-limit))))
+    (set-rinfo-match-count! (regraph-rinfo rg) (+ (rinfo-match-count (regraph-rinfo rg)) 1))
     (match-define (list opat en bindings ...) m)
     (for ([binding bindings] #:break (and limit (>= (egraph-cnt eg) limit)))
       (define expr* (substitute-e opat binding))
       (define en* (mk-enode-rec! eg expr*))
-      (merge-egraph-nodes! eg en en*))))
+      (merge-egraph-nodes! eg en en* (regraph-rebuilding-enabled? rg)))))
 
 (define ((precompute-phase fn) rg)
   (define eg (regraph-egraph rg))
   (define limit (regraph-limit rg))
   (for ([en (egraph-leaders eg)]
         #:break (and limit (>= (egraph-cnt eg) limit)))
-    (set-precompute! eg en fn)))
+    (set-precompute! eg en fn (regraph-rebuilding-enabled? rg))))
 
-(define (set-precompute! eg en fn)
+(define ((rebuild-phase) rg)
+  (define start-time (current-inexact-milliseconds))
+  (egraph-rebuild (regraph-egraph rg))
+  (set-rinfo-rebuild-time!
+   (regraph-rinfo rg)
+   (+ (rinfo-rebuild-time (regraph-rinfo rg))
+      (- (current-inexact-milliseconds) start-time))))
+
+(define (set-precompute! eg en fn rebuilding-enabled?)
   (for ([var (enode-vars en)] #:when (list? var))
     (define op (car var))
     (define args (map enode-atom (cdr var)))
@@ -65,13 +104,54 @@
       (define constant (apply fn op args))
       (when constant
         (define en* (mk-enode-rec! eg constant))
-        (merge-egraph-nodes! eg en en*)))))
+        (merge-egraph-nodes! eg en en* rebuilding-enabled?)))))
 
 (define (prune-phase rg)
   (define eg (regraph-egraph rg))
   (define limit (regraph-limit rg))
   (for ([en (egraph-leaders eg)] #:break (and limit (>= (egraph-cnt eg) limit)))
-    (reduce-to-single! eg en)))
+    (reduce-to-single! eg en (regraph-rebuilding-enabled? rg))))
 
 (define (extractor-phase rg)
   (extractor-iterate (regraph-extractor rg)))
+
+(module+ test
+  (define (test-in-graph exprs rule-pairs check)
+    (define in-rules
+      (for/list ([p rule-pairs])
+        (first p)))
+    (define out-rules
+      (for/list ([p rule-pairs])
+        (second p)))
+    (define regraph (make-regraph exprs #:limit 100))
+    ((rule-phase in-rules out-rules) regraph)
+    (extractor-phase regraph)
+    (check-equal? (regraph-extract regraph) check))
+
+  (define basic-rules
+     `([(+ x 0), `x]))
+
+  
+  (test-in-graph `((+ a 0)) basic-rules `(a))
+
+
+  ;; test that upward merging did its job
+  (define upwards-rules
+    `([(a 1 2) 3]
+      [(b (a 1 2) 4) 6]))
+
+  
+  (test-in-graph
+   `((b (a 1 2) 4))
+   upwards-rules
+   `(6))
+  
+  (test-in-graph
+   `((b 3 4))
+   upwards-rules
+   `((b 3 4)))
+  (test-in-graph
+   `((b 3 4) (b (a 1 2) 4))
+   upwards-rules
+   `(6 6)))
+

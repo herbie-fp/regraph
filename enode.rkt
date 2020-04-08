@@ -1,14 +1,15 @@
 #lang racket
 
 (provide new-enode enode-merge!
-	 enode-vars refresh-vars! enode-pid
+	 enode-vars refresh-vars!
+         enode-children enode-pid
 	 enode? enode-atom
 	 enode-expr
 	 pack-leader pack-members
 	 enode-subexpr?
          pack-filter! for-pack! pack-removef!
 	 set-enode-expr! update-vars!
-         dedup-children!
+         dedup-children! update-en-expr
          )
 
 ;;################################################################################;;
@@ -164,7 +165,9 @@
       en)))
 
 (define (dedup-children! en)
-  (set-enode-children! en (remove-duplicates (enode-children en) #:key enode-expr)))
+  (set-enode-children! en (rest (remove-duplicates
+                                 (cons en (enode-children en))
+                                 #:key enode-expr))))
 
 ;; Updates the expressions in the pack, using a specified updater.
 (define (update-vars! en updater)
@@ -233,9 +236,18 @@
 (define (enode-vars en)
   (enode-cvars (pack-leader en)))
 
+(define (update-en-expr expr)
+  (match expr
+    [(list op args ...)
+     (cons op (map pack-leader args))]
+    [_ expr]))
+
 ;; Removes duplicates from the varset of this node.
 (define (refresh-vars! en)
-  (set-enode-cvars! en (list->set (set->list (enode-cvars en)))))
+  (set-enode-cvars!
+   en
+   (for/set ([cvars (in-set (enode-cvars en))])
+     (update-en-expr cvars))))
 
 ;; Returns the pack ID of the pack of the given enode.
 (define (enode-pid en)
