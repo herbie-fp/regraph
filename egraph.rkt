@@ -7,8 +7,7 @@
 	 egraph? egraph-cnt
 	 draw-egraph egraph-leaders
          elim-enode-loops! reduce-to-single!
-         merge-time rebuild-time
-         egraph-rebuild
+         merge-time egraph-rebuild
          )
 
 
@@ -54,18 +53,11 @@
 ;; Only ever use leaders as keys!
 (struct egraph (cnt leader->iexprs expr->parent) #:mutable)
 (define merge-time 0)
-(define rebuild-time 0)
 
 
 (define (egraph-rebuild eg)
-  (define before-time (current-inexact-milliseconds))
-  (begin0
-      (egraph-rebuild-loop eg)
-    (set! rebuild-time (+ rebuild-time (- (current-inexact-milliseconds) before-time)))))
-
-(define (egraph-rebuild-loop eg)
   (unless (equal? (egraph-rebuild-once eg) 0)
-    (egraph-rebuild-loop eg)))
+    (egraph-rebuild eg)))
 
 (define (egraph-rebuild-once eg)
   (define new-memo (make-hash))

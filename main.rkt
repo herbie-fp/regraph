@@ -7,10 +7,15 @@
 (module+ test (require rackunit math/base))
 
 (provide make-regraph regraph-cost regraph-count regraph-extract regraph-limit
-         rule-phase precompute-phase prune-phase extractor-phase find-matches-time
-         regraph-match-count regraph-eclass-count rebuild-phase regraph-rebuilding-enabled?)
+         regraph-rinfo rinfo rinfo-match-count rinfo-search-time rinfo-rebuild-time
+         rule-phase precompute-phase prune-phase extractor-phase
+         regraph-eclass-count rebuild-phase regraph-rebuilding-enabled?)
 
-(struct regraph (egraph extractor ens limit match-count rebuilding-enabled?) #:mutable)
+(struct rinfo (match-count search-time rebuild-time) #:mutable)
+(struct regraph (egraph extractor ens limit rinfo rebuilding-enabled?) #:mutable)
+
+(define (make-rinfo)
+  (rinfo 0 0 0))
 
 (define (make-regraph exprs
                       #:limit [limit #f]
@@ -19,7 +24,7 @@
   (define ens (for/list ([expr exprs]) (mk-enode-rec! eg expr)))
   (define ex (apply mk-extractor ens))
   (extractor-iterate ex)
-  (regraph eg ex ens limit 0 rebuilding-enabled?))
+  (regraph eg ex ens limit (make-rinfo) rebuilding-enabled?))
 
 (define (regraph-eclass-count rg)
   (length (egraph-leaders (regraph-egraph rg))))
@@ -41,19 +46,16 @@
 ;; where bindings is a list of different matches between the rule and
 ;; the enode.
 
-(define find-matches-time 0)
 (define (find-matches ens ipats opats)
   (for ([en ens])
     (refresh-vars! en))
   
-  (define begin-time (current-inexact-milliseconds))
+  
   (define out '())
   (for ([ipat ipats] [opat opats] #:when true [en ens])
     (define bindings (match-e ipat en))
     (unless (null? bindings)
       (set! out (cons (list* opat en bindings) out))))
-  (set! find-matches-time
-        (+ find-matches-time (- (current-inexact-milliseconds) begin-time)))
   out)
 
 (define ((rule-phase ipats opats #:match-limit [match-limit #f] #:debug? [debug? #f]) rg)
@@ -61,10 +63,18 @@
   (define limit (regraph-limit rg))
   (when debug?
     (debug-repl))
-  (for* ([m (find-matches (egraph-leaders eg) ipats opats)]
+  (define search-start-time (current-inexact-milliseconds))
+  (define matches (find-matches (egraph-leaders eg) ipats opats))
+  (set-rinfo-search-time!
+   (regraph-rinfo rg)
+   (+ (rinfo-search-time (regraph-rinfo rg))
+      (- (current-inexact-milliseconds) search-start-time)))
+      
+  
+  (for* ([m matches]
          #:break (or (and limit (>= (egraph-cnt eg) limit))
-                     (and match-limit (> (regraph-match-count rg) match-limit))))
-    (set-regraph-match-count! rg (+ (regraph-match-count rg) 1))
+                     (and match-limit (> (rinfo-match-count (regraph-rinfo rg)) match-limit))))
+    (set-rinfo-match-count! (regraph-rinfo rg) (+ (rinfo-match-count (regraph-rinfo rg)) 1))
     (match-define (list opat en bindings ...) m)
     (for ([binding bindings] #:break (and limit (>= (egraph-cnt eg) limit)))
       (define expr* (substitute-e opat binding))
@@ -79,7 +89,12 @@
     (set-precompute! eg en fn (regraph-rebuilding-enabled? rg))))
 
 (define ((rebuild-phase) rg)
-  (egraph-rebuild (regraph-egraph rg)))
+  (define start-time (current-inexact-milliseconds))
+  (egraph-rebuild (regraph-egraph rg))
+  (set-rinfo-rebuild-time!
+   (regraph-rinfo rg)
+   (+ (rinfo-rebuild-time (regraph-rinfo rg))
+      (- (current-inexact-milliseconds) start-time))))
 
 (define (set-precompute! eg en fn rebuilding-enabled?)
   (for ([var (enode-vars en)] #:when (list? var))
