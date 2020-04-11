@@ -57,7 +57,7 @@
       (set! out (cons (list* opat en bindings) out))))
   out)
 
-(define ((rule-phase ipats opats #:match-limit [match-limit #f]) rg)
+(define ((rule-phase ipats opats #:match-limit [match-limit #f] #:identical-graph [id-graph #f]) rg)
   (define eg (regraph-egraph rg))
   (define limit (regraph-limit rg))
   (define search-start-time (current-inexact-milliseconds))
