@@ -48,8 +48,6 @@
 (define (find-matches ens ipats opats)
   (for ([en ens])
     (refresh-vars! en))
-  
-  
   (define out '())
   (for ([ipat ipats] [opat opats] #:when true [en ens])
     (define bindings (match-e ipat en))
@@ -96,7 +94,7 @@
 (define (set-precompute! eg en fn rebuilding-enabled?)
   (for ([var (enode-vars en)] #:when (list? var))
     (define op (car var))
-    (define args (map enode-atom (cdr var)))
+    (define args (map (lambda (e) (enode-atom (pack-leader e))) (cdr var)))
     (when (andmap identity args)
       (define constant (apply fn op args))
       (when constant

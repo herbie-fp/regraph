@@ -38,11 +38,15 @@
     (make-regraph batch #:limit node-limit #:rebuilding-enabled? rebuilding?)))
 
 
-(define (run-regraph regraph match-limit limits-file match-count-port eclass-count-port)
+(define (run-regraph regraph limits limits-file match-count-port eclass-count-port)
+  (define match-limit (if limits (first limits) #f))
+  (define iter-limit (if limits (second limits) #f))
   (define last-i
-    (for/or ([i (range 100000000000)])
+    (for/or ([i (if iter-limit (range iter-limit) (in-naturals 0))])
       (define initial-cnt (regraph-count regraph))
       ((rule-phase rules-in rules-out #:match-limit match-limit) regraph)
+      (when (regraph-rebuilding-enabled? regraph)
+        ((rebuild-phase) regraph))
       ((precompute-phase eval-application) regraph)
       (when (regraph-rebuilding-enabled? regraph)
         ((rebuild-phase) regraph))
@@ -56,7 +60,8 @@
        #f
        i)))
   (printf "Last iteration: ~a\n" last-i)
-  (fprintf limits-file "~a\n" (- (rinfo-match-count (regraph-rinfo regraph)) 1)))
+  (fprintf limits-file "~a\n" (list (- (rinfo-match-count (regraph-rinfo regraph)) 1)
+                                    (+ last-i 1))))
 
 (define (render-regraph-info-with-port all-regraphs port data)
   (fprintf port "~a\n"
@@ -111,7 +116,7 @@
                "Regraph ~a\n" i)
       (flush-output)
 
-      (define match-limit
+      (define limits
         (if rebuilding?
             (read limits-file)
             #f))
@@ -120,7 +125,7 @@
       (define begin-merge merge-time)
       (define begin-rebuild (rinfo-rebuild-time (regraph-rinfo regraph)))
       (define begin-find-matches (rinfo-search-time (regraph-rinfo  regraph)))
-      (run-regraph regraph match-limit limits-file-out match-count-port eclass-count-port)
+      (run-regraph regraph limits limits-file-out match-count-port eclass-count-port)
       (define after (current-inexact-milliseconds))
       (define data
         (list
@@ -132,9 +137,9 @@
                            data))
     (close-output-port limits-file-out)))
 
-(define (time-suite filename folder rebuild-folder limits-folder)
-  (time-suite-with filename folder limits-folder false)
-  (time-suite-with filename folder limits-folder true))
+(define (time-suite filename upwards-folder rebuild-folder limits-folder)
+  (time-suite-with filename upwards-folder limits-folder false)
+  (time-suite-with filename rebuild-folder limits-folder true))
 
 
 (module+ main

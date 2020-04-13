@@ -65,28 +65,29 @@
     (hash-ref (hash-ref data-table benchmark) 5000))
   (display-line (cons benchmark (compute-averages all-data-for-benchmark)) port))
 
-(define (start-process name)
-  (define dir-name (string-append "tables-" name))
+(define (start-process folder table-folder)
+  (define dir-path
+    (build-path (current-directory) table-folder))
   (define data-table (make-hash))
   (for ([data-file (directory-list (build-path (current-directory)
-                                               (string-append "timing-" name)))])
+                                               folder))])
     (process-data
      (get-data (build-path (current-directory)
-                           (string-append "timing-" name)
+                           folder
                            data-file))
      data-file
      data-table))
 
   
-  (unless (directory-exists? dir-name)
-    (make-directory (build-path (current-directory) dir-name)))
+  (unless (directory-exists? dir-path)
+    (make-directory dir-path))
 
   (define all-averages-file
-    (open-output-file (build-path (current-directory) dir-name "averages.txt")
+    (open-output-file (build-path dir-path "averages.txt")
                       #:exists 'replace))
 
   (define all-benchmarks-file
-    (open-output-file (build-path (current-directory) dir-name "benchmarks.txt")
+    (open-output-file (build-path dir-path "benchmarks.txt")
                       #:exists 'replace))
 
   (for ([node-limit (in-list iteration-options)])
@@ -114,12 +115,13 @@
     (+ (second r) (third r))))
 
 
-(define (make-search-plot utable rtable filename label get-function filter-func)
-  (define all-data-folder (build-path (current-directory) "all-data"))
+(define (make-search-plot utable rtable all-data-filename filename label get-function filter-func)
+  (define all-data-folder (build-path (current-directory) all-data-filename))
   (unless (directory-exists? all-data-folder)
     (make-directory all-data-folder))
+  
   (define all-file
-    (open-output-file (build-path (current-directory) "all-data"
+    (open-output-file (build-path (current-directory) all-data-filename
                                   (string-append "all-" filename  ".txt"))
                       #:exists 'replace))
   ;; keys are benchmark and values are a pair of search time points
@@ -152,21 +154,27 @@
             #:sym 'fullcircle1
             #:alpha 0.2
             all-points))
-     (string-append filename ".png")
+     (build-path all-data-folder (string-append filename ".png"))
      #:x-label (string-append "upwards merging " label)
      #:y-label (string-append "rebuliding " label))))
 
 
 (module+ main
-  (define upwards-table (start-process "upwards"))
-  (define rebuild-table (start-process "rebuilding"))
+  (command-line 
+   #:program "process-data"
+   #:args (ufolder rfolder utable-folder rtable-folder all-data-folder)
+   (define upwards-table (start-process ufolder utable-folder))
+   (define rebuild-table (start-process rfolder rtable-folder))
 
-  (define (filter-low-points cutoff)
-    (lambda (point) (or (< cutoff (vector-ref point 0)) (< cutoff (vector-ref point 1)))))
-  (define filter-zeros
-    (lambda (point) (and (> (vector-ref point 0) 0) (> (vector-ref point 1) 0))))
+   (define (filter-low-points cutoff)
+     (lambda (point) (or (< cutoff (vector-ref point 0)) (< cutoff (vector-ref point 1)))))
+   (define filter-zeros
+     (lambda (point) (and (> (vector-ref point 0) 0) (> (vector-ref point 1) 0))))
 
-  (make-search-plot upwards-table rebuild-table "total-time" "total time (seconds)" get-total-time (filter-low-points 200))
-  (make-search-plot upwards-table rebuild-table "search-time" "search time (seconds)" get-search-time (filter-low-points 200))
-  (make-search-plot upwards-table rebuild-table "congruence-closure-time" "congruence closure time (seconds)" get-congruence-time filter-zeros)
-  )
+   (make-search-plot upwards-table rebuild-table all-data-folder
+                     "total-time" "total time (seconds)" get-total-time (filter-low-points 200))
+   (make-search-plot upwards-table rebuild-table all-data-folder
+                     "search-time" "search time (seconds)" get-search-time (filter-low-points 200))
+   (make-search-plot upwards-table rebuild-table all-data-folder
+                     "congruence-closure-time" "congruence closure time (seconds)" get-congruence-time filter-zeros)
+   ))
