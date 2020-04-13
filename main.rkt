@@ -79,9 +79,15 @@
 (define ((precompute-phase fn) rg)
   (define eg (regraph-egraph rg))
   (define limit (regraph-limit rg))
-  (for ([en (egraph-leaders eg)]
-        #:break (and limit (>= (egraph-cnt eg) limit)))
-    (set-precompute! eg en fn (regraph-rebuilding-enabled? rg))))
+  (define to-merge
+    (for/list ([en (egraph-leaders eg)]
+               #:break (and limit (>= (egraph-cnt eg) limit)))
+      (set-precompute! eg en fn)))
+  (for ([mergelist to-merge])
+    (when mergelist
+      (for ([mergepair mergelist])
+        (when mergepair
+          (merge-egraph-nodes! eg (first mergepair) (second mergepair) (regraph-rebuilding-enabled? rg)))))))
 
 (define ((rebuild-phase) rg)
   (define start-time (current-inexact-milliseconds))
@@ -91,15 +97,18 @@
    (+ (rinfo-rebuild-time (regraph-rinfo rg))
       (- (current-inexact-milliseconds) start-time))))
 
-(define (set-precompute! eg en fn rebuilding-enabled?)
-  (for ([var (enode-vars en)] #:when (list? var))
+(define (set-precompute! eg en fn)
+  (for/list ([var (enode-vars en)] #:when (list? var))
     (define op (car var))
     (define args (map (lambda (e) (enode-atom (pack-leader e))) (cdr var)))
-    (when (andmap identity args)
-      (define constant (apply fn op args))
-      (when constant
-        (define en* (mk-enode-rec! eg constant))
-        (merge-egraph-nodes! eg en en* rebuilding-enabled?)))))
+    (cond
+      [(andmap identity args)
+       (define constant (apply fn op args))
+       (if constant
+           (list en(mk-enode-rec! eg constant))
+           #f)]
+      [else #f])))
+       
 
 (define (prune-phase rg)
   (define eg (regraph-egraph rg))
