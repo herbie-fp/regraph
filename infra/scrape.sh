@@ -11,17 +11,21 @@ benchnames=(`echo "$rsynclines" \
 
 unique=($(echo "${benchnames[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
 
+mkdir -p exprs
 
 for ((i=0;i<${#unique[@]};++i)); do
     urlid="${urlids[i]}"
     benchname="${benchnames[i]}"
-    echo $benchname
-    tests=$(curl -s -L "http://herbie.uwplse.org/reports/$urlid/$benchname")
+    testnames=$(curl -s -L "http://herbie.uwplse.org/reports/$urlid/$benchname" \
+		    | grep -Ei "href=\"[0-9]+-" \
+		    | cut -d "\"" -f 2 | cut -d "/" -f 1)
+    for testname in $testnames; do
+	batches="http://herbie.uwplse.org/reports/$urlid/$benchname/$testname/debug.txt"
+	echo $batches
+	curl -s -L $batches >> "exprs/$benchname-exprs.txt"
+    done
+					     
 done
-
-    #
-
-
 
 
 
