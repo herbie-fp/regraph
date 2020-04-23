@@ -1,27 +1,33 @@
 #!/bin/bash
+set -o errexit -o pipefail
 
-echo "scraping expressions from run at $1"
+HERBIERUN="http://warfa.cs.washington.edu/nightlies/2020-04-15-herbie-master.log"
 
-rsynclines=$(curl -s "$1" \
-		 | grep "rsync --recursive r")
+echo "scraping expressions from run at $HERBIERUN"
 
-urlids=(`echo "$rsynclines" | grep -oEi "herbie/reports/.*" | xargs -n1 basename`)
-
+rm -rf exprs
 mkdir -p exprs
 
-NL=$'\n'
+curl -s "$HERBIERUN" \
+    | sed -n -e '/version:/,/version:/ p' \
+    | grep "rsync --recursive reports/" \
+    | cut -d\   -f4,7 \
+    | while read -r argsuite argpath; do
+    suite=`echo $argsuite | cut -d/ -f2`
+    reportid=`echo $argpath | cut -d/ -f6`
+    script="find \"/var/www/herbie/reports/$reportid\" -name debug.txt.gz -exec zcat {} ';'"
+    
+    
+    echo "scraping benchmark suite $suite"
+    ssh -n oflatt@uwplse.org "$script" \
+	| sed -n -e '/Simplifying using/,/iteration/ p' \
+  	| sed '/Simplifying using/ c (' \
+	| sed '/iteration/ c )' \
+	      > "exprs/$suite.exprs"
+	
+	
+    echo "scraped to exprs/$suite.exprs"
+    
+    done
 
-for ((x=0; x<(${#urlids[@]} / 2); x++)); do
-    urlid="${urlids[x]}"
-    benchname=$(ssh oflatt@uwplse.org "dir /var/www/herbie/reports/$urlid")
-    echo "scraping benchmark suite $benchname"
-    alldebuglogscommand="testnames=\$(ls /var/www/herbie/reports/$urlid/$benchname
-			       		  | grep -Ei \"[0-9]+-\") &&
-			 for testname in \$testnames; do
-			     zcat /var/www/herbie/reports/$urlid/$benchname/\$testname/debug.txt.gz
-			     | sed -n -e '/Simplifying using/,/iteration/ p'
-			     | sed '/iteration/ d'
-			     | sed '/Simplifying using/ c \"NEW BATCH\"';
- 			 done"
-    ssh oflatt@uwplse.org $alldebuglogscommand >> "exprs/$benchname-exprs.txt"
-done
+
