@@ -1,7 +1,7 @@
 #lang racket
 
-(require "./main.rkt")
-(require "./egraph.rkt")
+(require "../main.rkt")
+(require "../egraph.rkt")
 (require "./herbie/src/programs.rkt")
 (require (except-in profile profile))
 (require profile/render-text)
@@ -10,7 +10,7 @@
 
 (provide iteration-options)
 
-(define iteration-options '(2500 5000 7500))
+(define iteration-options '(5000))
 
 (define rules-exprs-port (open-input-file "./rules.txt"))
 (define rules-in (read rules-exprs-port))
@@ -22,25 +22,15 @@
       empty
       (cons line (read-lines port))))
 
-;; return nonempty splits
-(define (split-all-by l element)
-  (define-values (top end) (splitf-at l (lambda (a) (not (equal? a element)))))
-  (define r
-    (if (<= (length end) 1)
-        empty
-        (split-all-by (rest end) element)))
-  (if (empty? top)
-      r
-      (cons top r)))
-
 (define (spawn-all-regraphs port node-limit rebuilding?)
-  (for/list ([batch (split-all-by (read-lines port) "NEW BATCH")])
+  (for/list ([batch (read-lines port)])
     (make-regraph batch #:limit node-limit #:rebuilding-enabled? rebuilding?)))
 
 
-(define (run-regraph regraph limits limits-file match-count-port eclass-count-port)
+(define (run-regraph regraph limits match-count-port)
   (define match-limit (if limits (first limits) #f))
   (define iter-limit (if limits (second limits) #f))
+  
   (define last-i
     (for/or ([i (if iter-limit (range iter-limit) (in-naturals 0))])
       (define initial-cnt (regraph-count regraph))
@@ -51,7 +41,7 @@
       (when (regraph-rebuilding-enabled? regraph)
         ((rebuild-phase) regraph))
       (fprintf match-count-port "~a\n" (rinfo-match-count (regraph-rinfo regraph)))
-      (fprintf eclass-count-port "~a\n" (regraph-eclass-count regraph))
+      
       (if
        (and
         (< initial-cnt (regraph-count regraph))
@@ -59,94 +49,73 @@
         (or (not match-limit) (<= (rinfo-match-count (regraph-rinfo regraph)) match-limit)))
        #f
        i)))
+  
   (printf "Last iteration: ~a\n" last-i)
-  (fprintf limits-file "~a\n" (list (- (rinfo-match-count (regraph-rinfo regraph)) 1)
-                                    (+ last-i 1))))
+  (list (- (rinfo-match-count (regraph-rinfo regraph)) 1)
+        (+ last-i 1)))
 
 (define (render-regraph-info-with-port all-regraphs port data)
   (fprintf port "~a\n"
            (string-join (map (λ (ele) (~a (exact->inexact (/ ele (length all-regraphs))))) data) ",")))
 
-(define (render-regraph-info all-regraphs time-file data)
-  (render-regraph-info-with-port all-regraphs time-file data)
-  (render-regraph-info-with-port all-regraphs (current-output-port) data)
-  (flush-output))
+(define (render-csv-line file-port data)
+  (fprintf file-port "~a\n"
+           (string-join (map ~a data) ",")))
 
-(define (time-suite-with filename folder limits-folder rebuilding? [upwards-regraphs #f])
-  (fprintf (current-output-port) "\nTiming file ~a~a\n" filename
-           (if rebuilding? " with rebuilding" ""))
-  (define average-port
-    (open-output-file (build-path (current-directory) folder "averages.txt")
-                      #:exists 'replace))
-  (define match-count-port
-    (open-output-file (build-path (current-directory) folder "match-counts-verification.txt") #:exists 'replace))
+(define (time-suite-with exprs-filename info-port match-count-port
+                         node-limit rebuild-limits)
+  (fprintf (current-output-port) "\nTiming file ~a~a\n" exprs-filename
+           (if rebuild-limits " with rebuilding" ""))
 
-  (define eclass-count-port
-    (open-output-file (build-path (current-directory) folder "eclass-counts-verification.txt") #:exists 'replace))
+  (printf "Timing with node limit: ~a\n" (number->string node-limit))
+
+  (define exprs-port (open-input-file (build-path (current-directory) exprs-filename)))
+
+  (define all-regraphs
+    (spawn-all-regraphs exprs-port (and (not rebuild-limits) node-limit)
+                        (if rebuild-limits true false)))
+
+  (define limits-iter (if rebuild-limits rebuild-limits (in-producer (lambda () false))))
   
+  (for/list ([regraph all-regraphs] [i (length all-regraphs)] [limit limits-iter])
+    (fprintf (current-output-port)
+             "Regraph ~a\n" i)
+    (flush-output)
+
+    (define begin-time (current-inexact-milliseconds))
+    (define begin-merge merge-time)
+    (define begin-rebuild (rinfo-rebuild-time (regraph-rinfo regraph)))
+    (define begin-find-matches (rinfo-search-time (regraph-rinfo  regraph)))
+    (define new-limit
+      (run-regraph regraph limit match-count-port))
+    (define after (current-inexact-milliseconds))
+    (define data
+      (list
+       (file-name-from-path exprs-filename)
+       (- after begin-time)
+       (- merge-time begin-merge)
+       (- (rinfo-rebuild-time (regraph-rinfo regraph)) begin-rebuild)
+       (- (rinfo-search-time (regraph-rinfo regraph)) begin-find-matches)))
+    (render-csv-line info-port data)
+    new-limit))
+
+(define (time-suite expr-file upwards-port rebuilding-port
+                    rmatch-count-port umatch-count-port)
   (for ([node-limit (in-list iteration-options)])
-    (define-values (suite-folder suite-file unused-flag) (split-path (string->path filename)))
-    (define exprs-name (path->string (path-replace-extension suite-file "")))
-    (define suite-port (open-input-file filename))
-    (printf "Timing with node limit: ~a\n" (number->string node-limit))
-    (define time-file (open-output-file
-                       (build-path (current-directory)
-                                   folder
-                                   (string-append (number->string node-limit) "-"
-                                                  exprs-name "-total.txt"))
-                       #:exists 'replace))
-    (define limits-file-name
-      (build-path (current-directory) limits-folder (format "~a-~a-match-limits.txt" node-limit exprs-name)))
-
-    (define limits-file-out
-      (if rebuilding?
-          (open-output-nowhere)
-          (open-output-file limits-file-name #:exists 'replace)))
-
-    (define all-regraphs
-      (spawn-all-regraphs suite-port (and (not rebuilding?) node-limit) rebuilding?))
-
-    (define limits-file
-      (if rebuilding?
-          (open-input-file limits-file-name)
-          #f))
-
-    (for ([regraph all-regraphs] [i (length all-regraphs)])
-      (fprintf (current-output-port)
-               "Regraph ~a\n" i)
-      (flush-output)
-
-      (define limits
-        (if rebuilding?
-            (read limits-file)
-            #f))
-
-      (define begin-time (current-inexact-milliseconds))
-      (define begin-merge merge-time)
-      (define begin-rebuild (rinfo-rebuild-time (regraph-rinfo regraph)))
-      (define begin-find-matches (rinfo-search-time (regraph-rinfo  regraph)))
-      (run-regraph regraph limits limits-file-out match-count-port eclass-count-port)
-      (define after (current-inexact-milliseconds))
-      (define data
-        (list
-         (- after begin-time)
-         (- merge-time begin-merge)
-         (- (rinfo-rebuild-time (regraph-rinfo regraph)) begin-rebuild)
-         (- (rinfo-search-time (regraph-rinfo regraph)) begin-find-matches)))
-      (render-regraph-info (list regraph) time-file
-                           data))
-    (close-output-port limits-file-out)))
-
-(define (time-suite filename upwards-folder rebuild-folder limits-folder)
-  (time-suite-with filename upwards-folder limits-folder false)
-  (time-suite-with filename rebuild-folder limits-folder true))
+    (define limits (time-suite-with expr-file upwards-port rmatch-count-port node-limit false))
+    (time-suite-with expr-file rebuilding-port umatch-count-port node-limit limits)))
 
 
 (module+ main
   (define rebuilding? #f)
   (command-line 
    #:program "time-rebuilding"
-   #:args (folder rebuild-folder limits-folder . expr-files)
+   #:args (upwards-file rebuilding-file umatch-file rmatch-file . expr-files)
+   (define upwards-port (open-output-file upwards-file #:exists 'replace))
+   (define rebuilding-port (open-output-file rebuilding-file #:exists 'replace))
+   (define umatch-count-port (open-output-file umatch-file #:exists 'replace))
+   (define rmatch-count-port (open-output-file rmatch-file #:exists 'replace))
    (for ([expr-file expr-files])
      (printf "#########################\nTiming file: ~a\n" expr-file)
-     (time-suite expr-file folder rebuild-folder limits-folder))))
+     (time-suite expr-file upwards-port rebuilding-port
+                 rmatch-count-port umatch-count-port))))

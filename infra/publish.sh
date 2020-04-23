@@ -6,17 +6,18 @@ RHOSTDIR="/var/www/regraph"
 
 upload () {
     DIR="$(date +%s)"
+    rm -rf report
     mkdir -p report
-    mv data/all/search-time.png data/all/total-time.png data/all/congruence-closure-time.png report/
-    mv data/tables-upwards/averages.txt report/upwards.txt
-    mv data/tables-rebuilding/averages.txt report/rebuilding.txt
-    mv data/tables-upwards/benchmarks.txt report/benchmarks-upwards.txt
-    mv data/tables-rebuilding/benchmarks.txt report/benchmarks-rebuilding.txt
-    cp data/timing-upwards/match-counts-verification.txt report/match-counts-upwards.txt
-    cp data/timing-rebuilding/match-counts-verification.txt report/match-counts-rebuilding.txt
+    
+    cp data/upwards.csv report/upwards.csv
+    cp data/rebuilding.csv report/rebuilding.csv
+    cp data/umatch-counts.csv report/umatch-counts.csv
+    cp data/rmatch-counts.csv report/rmatch-counts.csv
+    
     cp index.css report/
-    racket index.rkt report/upwards.txt report/rebuilding.txt report/benchmarks-upwards.txt report/benchmarks-rebuilding.txt report/match-counts-upwards.txt report/match-counts-rebuilding.txt report/index.html
-    rsync --perms --chmod 755 --recursive report/ "$RHOST:$RHOSTDIR/$DIR"
+    
+    racket index.rkt report/upwards.csv report/rebuilding.csv report/umatch-counts.csv report/rmatch-counts.csv report/index.html
+    #rsync --perms --chmod 755 --recursive report/ "$RHOST:$RHOSTDIR/$DIR"
 }
 
 upload
