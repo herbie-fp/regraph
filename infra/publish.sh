@@ -16,7 +16,7 @@ upload () {
     
     cp index.css report/
     
-    racket index.rkt report/upwards.csv report/rebuilding.csv report/umatch-counts.csv report/rmatch-counts.csv report/index.html
+    racket index.rkt report report/upwards.csv report/rebuilding.csv report/umatch-counts.csv report/rmatch-counts.csv report/index.html
     #rsync --perms --chmod 755 --recursive report/ "$RHOST:$RHOSTDIR/$DIR"
 }
 

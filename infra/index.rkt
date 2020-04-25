@@ -1,6 +1,9 @@
 #lang racket
 (require (only-in xml write-xexpr))
 (require racket/date)
+(require plot/no-gui)
+(require "./time-regraph.rkt")
+
 (module+ test (require rackunit))
 
 (define (total-time row)
@@ -27,14 +30,6 @@
           (for/list ([(key data) table])
             (apply map + data)))))
 
-(module+ test
-  (define test-table (make-hash `((a (1 2 3) (2 4 9) (1 1 1)) (b (10 10 10)))))
-  (println test-table)
-  (check-equal? (average-table test-table) (list (exact->inexact 14/4)
-                                                 (exact->inexact 17/4)
-                                                 (exact->inexact 23/4))))
-
-
 (define (data-table c1-name data-um data-rb)
   `(table
     (thead
@@ -45,20 +40,88 @@
          (define rb-rows (hash-ref data-rb benchname))
          (define um (average-rows um-rows))
          (define rb (average-rows rb-rows))
-         `(tr (th ,benchname)
+         `(tr (th ,(first (string-split benchname ".")))
               (td ,(total-time um)) (td ,(total-time rb))
               (td ,(congruence-time um))
               (td (span ([title ,(congruence-detail rb)]))
                   ,(congruence-time rb))
               (td ,(search-time um)) (td ,(search-time rb)))))))
 
-(define (make-html port data-um data-rb counts-same?)
+(define (get-total-time data)
+  (for/list ([r data])
+    (first r)))
+
+(define (get-search-time data)
+  (for/list ([r data])
+    (fourth r)))
+
+(define (get-congruence-time data)
+  (for/list ([r data])
+    (+ (second r) (third r))))
+
+
+(define (make-search-plot utable rtable file-path label get-function filter-func)
+  ;; keys are benchmark and values are a pair of search time points
+  (define vector-table (make-hash))
+  (for ([(key nodemap) utable])
+    (hash-set! vector-table key
+               (map vector (get-function nodemap)
+                    (get-function (hash-ref rtable key)))))
+
+  (define all-points-milliseconds
+    (filter
+     filter-func
+     (flatten
+      (for/list ([(key vectors) vector-table])
+        vectors))))
+
+  (define all-points
+    (for/list ([vec all-points-milliseconds])
+      (for/vector ([num vec])
+        (/ num 1000))))
+
+  (parameterize ([plot-x-transform  log-transform]
+                 [plot-y-transform log-transform])
+    (plot-file
+     (list (function (λ (x) x) #:color 0 #:style 'dot)
+           (points
+            #:sym 'fullcircle1
+            #:alpha 0.2
+            all-points))
+     file-path
+     #:x-label (string-append "upwards merging " label)
+     #:y-label (string-append "rebuliding " label))))
+
+
+(define (make-html report-dir port data-um data-rb counts-same?)
   (define averaged-um (average-table data-um))
   (define averaged-rb (average-table data-rb))
   (define congruence-speedup (/ (+ (second averaged-um) (third averaged-um))
                                 (+ (second averaged-rb) (third averaged-rb))))
   (define searching-speedup (/ (fourth averaged-um) (fourth averaged-rb)))
   (define overall-speedup (/ (first averaged-um) (first averaged-rb)))
+
+  (define (filter-low-points cutoff)
+    (lambda (point) (or (< cutoff (vector-ref point 0)) (< cutoff (vector-ref point 1)))))
+  (define filter-zeros
+    (lambda (point) (and (> (vector-ref point 0) 0) (> (vector-ref point 1) 0))))
+
+
+  (make-search-plot data-um data-rb
+                    (build-path report-dir (string-append "total-time" ".png"))
+                    "total time (seconds)"
+                    get-total-time
+                    (filter-low-points 200))
+  (make-search-plot data-um data-rb
+                    (build-path report-dir (string-append "search-time" ".png"))
+                    "search time (seconds)"
+                    get-search-time
+                    (filter-low-points 200))
+  (make-search-plot data-um data-rb
+                    (build-path report-dir (string-append "congruence-closure-time" ".png"))
+                    "congruence closure time (seconds)"
+                    get-congruence-time
+                    filter-zeros)
 
   (write-xexpr
    `(html
@@ -80,7 +143,8 @@
       ,(data-table "Suite" data-um data-rb)
       
       (figure
-       (img ([src "search-time.png"]))(img ([src "total-time.png"]))
+       (img ([src "search-time.png"]))
+       (img ([src "total-time.png"]))
        (img ([src "congruence-closure-time.png"])))
       ))
    port))
@@ -110,12 +174,21 @@
 
 (module+ main
   (command-line 
-   #:args (table-um table-rb match-counts-um match-counts-rb output)
+   #:args (report-dir table-um table-rb match-counts-um match-counts-rb output)
    (call-with-output-file
      output #:exists 'replace
      (λ (p)
-       (make-html p
+       (make-html report-dir
+                  p
                   (make-hash-list (call-with-input-file table-um read-file))
                   (make-hash-list (call-with-input-file table-rb read-file))
                   (match-counts-same? (open-input-file match-counts-um)
                                       (open-input-file match-counts-rb)))))))
+
+(module+ test
+  (define test-table (make-hash `((a (1 2 3) (2 4 9) (1 1 1)) (b (10 10 10)))))
+  (println test-table)
+  (check-equal? (average-table test-table) (list (exact->inexact 14/4)
+                                                 (exact->inexact 17/4)
+                                                 (exact->inexact 23/4))))
+
