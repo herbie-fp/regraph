@@ -1,14 +1,12 @@
 #!/bin/bash
 set -o errexit -o pipefail
 
-HERBIERUN="http://warfa.cs.washington.edu/nightlies/2020-04-15-herbie-master.log"
-
-echo "scraping expressions from run at $HERBIERUN"
+echo "scraping expressions from run at $1"
 
 rm -rf exprs
 mkdir -p exprs
 
-curl -s "$HERBIERUN" \
+curl -s "$1" \
     | sed -n -e '/version:/,/version:/ p' \
     | grep "rsync --recursive reports/" \
     | cut -d\   -f4,7 \
