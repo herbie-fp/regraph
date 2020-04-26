@@ -108,7 +108,6 @@
   (define filter-zeros
     (lambda (point) (and (> (vector-ref point 0) 0) (> (vector-ref point 1) 0))))
 
-
   (make-search-plot data-um data-rb
                     (build-path report-dir (string-append "total-time" ".png"))
                     "total time (seconds)"

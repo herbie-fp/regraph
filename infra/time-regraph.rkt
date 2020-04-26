@@ -1,4 +1,4 @@
-#lang racket
+ #lang racket
 
 (require "../main.rkt")
 (require "../egraph.rkt")
@@ -6,11 +6,6 @@
 (require (except-in profile profile))
 (require profile/render-text)
 (require profile/analyzer)
-
-
-(provide iteration-options)
-
-(define iteration-options '(5000))
 
 (define rules-exprs-port (open-input-file "./rules.txt"))
 (define rules-in (read rules-exprs-port))
@@ -101,9 +96,8 @@
 
 (define (time-suite expr-file upwards-port rebuilding-port
                     rmatch-count-port umatch-count-port)
-  (for ([node-limit (in-list iteration-options)])
-    (define limits (time-suite-with expr-file upwards-port rmatch-count-port node-limit false))
-    (time-suite-with expr-file rebuilding-port umatch-count-port node-limit limits)))
+  (define limits (time-suite-with expr-file upwards-port umatch-count-port 5000 false))
+  (time-suite-with expr-file rebuilding-port rmatch-count-port 5000 limits))
 
 
 (module+ main
