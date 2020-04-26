@@ -93,7 +93,9 @@
      #:y-label (string-append "rebuliding " label))))
 
 
-(define (make-html report-dir port data-um data-rb counts-same?)
+(define (make-html report-link report-dir port um-file rb-file counts-same?)
+  (define data-um (make-hash-list (call-with-input-file um-file read-file)))
+  (define data-rb (make-hash-list (call-with-input-file rb-file read-file)))
   (define averaged-um (average-table data-um))
   (define averaged-rb (average-table data-rb))
   (define congruence-speedup (/ (+ (second averaged-um) (third averaged-um))
@@ -146,6 +148,16 @@
        (img ([src "search-time.png"]))
        (img ([src "total-time.png"]))
        (img ([src "congruence-closure-time.png"])))
+      
+      (p
+       (a ([href ,(path->string (file-name-from-path (string->path um-file)))])
+          "Upwards merging data\n"))
+      (p
+       (a ([href ,(path->string (file-name-from-path (string->path rb-file)))])
+          "Rebuilding data\n"))
+      (p
+       (a ([href ,report-link])
+          "Expressions scraped from this report"))
       ))
    port))
 
@@ -174,14 +186,15 @@
 
 (module+ main
   (command-line 
-   #:args (report-dir table-um table-rb match-counts-um match-counts-rb output)
+   #:args (report-link report-dir table-um table-rb match-counts-um match-counts-rb output)
    (call-with-output-file
      output #:exists 'replace
      (λ (p)
-       (make-html report-dir
+       (make-html report-link
+                  report-dir
                   p
-                  (make-hash-list (call-with-input-file table-um read-file))
-                  (make-hash-list (call-with-input-file table-rb read-file))
+                  table-um
+                  table-rb
                   (match-counts-same? (open-input-file match-counts-um)
                                       (open-input-file match-counts-rb)))))))
 

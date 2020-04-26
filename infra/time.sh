@@ -4,7 +4,7 @@ set -e -x
 export PATH="$PATH:/opt/racket-7.5/bin/"
 
 if [ ! -d herbie ] ; then
-    git clone https://github.com/uwplse/herbie
+    git clone --single-branch --branch master https://github.com/uwplse/herbie
 fi
 
 rm -rf "data"
