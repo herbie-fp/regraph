@@ -17,7 +17,7 @@ curl -s "$1" \
     
     
     echo "scraping benchmark suite $suite"
-    ssh -n oflatt@uwplse.org "$script" \
+    ssh -n uwplse.org "$script" \
 	| sed -n -e '/Simplifying using/,/iteration/ p' \
   	| sed '/Simplifying using/ c (' \
 	| sed '/iteration/ c )' \
