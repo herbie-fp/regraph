@@ -32,7 +32,7 @@
       ((rule-phase rules-in rules-out #:match-limit match-limit) regraph)
       (when (regraph-rebuilding-enabled? regraph)
         ((rebuild-phase) regraph))
-      ((precompute-phase eval-application) regraph)
+      ;((precompute-phase eval-application) regraph)
       (when (regraph-rebuilding-enabled? regraph)
         ((rebuild-phase) regraph))
       (fprintf match-count-port "~a\n" (rinfo-match-count (regraph-rinfo regraph)))
