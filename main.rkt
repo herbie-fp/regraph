@@ -77,11 +77,12 @@
       (merge-egraph-nodes! eg en en* (regraph-rebuilding-enabled? rg)))))
 
 (define ((precompute-phase fn) rg)
+  (define eg (regraph-egraph rg))
+  (define limit (regraph-limit rg))
+  
   (for ([leader (egraph-leaders eg)])
     (refresh-vars! leader))
   
-  (define eg (regraph-egraph rg))
-  (define limit (regraph-limit rg))
   (define to-merge
     (for/list ([en (egraph-leaders eg)]
                #:break (and limit (>= (egraph-cnt eg) limit)))
