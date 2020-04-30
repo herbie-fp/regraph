@@ -1,5 +1,5 @@
 .PHONY: nightly scrape
-SCRAPELOG=http://warfa.cs.washington.edu/nightlies/2020-02-26-herbie-master.log
+SCRAPELOG=http://warfa.cs.washington.edu/nightlies/2020-01-20-herbie-master.log
 
 nightly:
 	cd infra && bash scrape.sh ${SCRAPELOG}
