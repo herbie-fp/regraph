@@ -2,10 +2,7 @@
 
 (require "../main.rkt")
 (require "../egraph.rkt")
-(require "./herbie/src/programs.rkt")
-(require (except-in profile profile))
-(require profile/render-text)
-(require profile/analyzer)
+(require "./precompute.rkt")
 
 (define rules-exprs-port (open-input-file "./rules.txt"))
 (define rules-in (read rules-exprs-port))
