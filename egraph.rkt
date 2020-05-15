@@ -60,14 +60,14 @@
     (egraph-rebuild eg)))
 
 (define (egraph-rebuild-once eg)
-  (define to-union (set))
+  (define to-union (mutable-set))
   (for ([sublist (egraph-to-merge eg)])
-    (for ([pair sublist])
-      (set-add! to-union (map pack-leader pair))))
+    (for ([pair sublist] #:when pair)
+      (set-add! to-union (cons (pack-leader (car pair)) (pack-leader (cdr pair))))))
   (set-egraph-to-merge! eg empty)
   (for ([pair to-union])
-    (merge-egraph-nodes! eg (first pair) (second pair))
-    (dedup-vars! (first pair)))
+    (merge-egraph-nodes-untimed! eg (car pair) (cdr pair) #t)
+    (dedup-vars! (car pair)))
   (set-count to-union))
 
 ;; For debugging
@@ -166,10 +166,10 @@
 (define (merge-egraph-nodes! eg en1 en2 rebuilding-enabled?)
   (define begin-time (current-inexact-milliseconds))
   (begin0
-      (merge-egraph-nodes-recursive! eg en1 en2 rebuilding-enabled?)
+      (merge-egraph-nodes-untimed! eg en1 en2 rebuilding-enabled?)
     (set! merge-time (+ merge-time (- (current-inexact-milliseconds) begin-time)))))
 
-(define (merge-egraph-nodes-recursive! eg en1 en2 rebuilding-enabled?)    
+(define (merge-egraph-nodes-untimed! eg en1 en2 rebuilding-enabled?)    
   (match-define (egraph _ leader->iexprs expr->parent _) eg)
   ;; Operate on the pack leaders in case we were passed a non-leader
   (define l1 (pack-leader en1))
@@ -213,9 +213,9 @@
      ;; Now the state is consistent for this merge, so we can tackle
      ;; the other merges.
      (if rebuilding-enabled?
-         (set-egraph-to-merge! (cons to-merge (egraph-to-merge eg)))
+         (set-egraph-to-merge! eg (cons to-merge (egraph-to-merge eg)))
          (for ([node-pair (in-list to-merge)] #:when node-pair)
-           (merge-egraph-nodes-recursive! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
+           (merge-egraph-nodes-untimed! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
 
      (hash-remove! (egraph-leader->iexprs eg) follower)
      
