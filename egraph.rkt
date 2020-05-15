@@ -51,7 +51,7 @@
 ;;################################################################################;;
 
 ;; Only ever use leaders as keys!
-(struct egraph (cnt leader->iexprs expr->parent) #:mutable)
+(struct egraph (cnt leader->iexprs expr->parent to-merge) #:mutable)
 (define merge-time 0)
 
 
@@ -60,23 +60,15 @@
     (egraph-rebuild eg)))
 
 (define (egraph-rebuild-once eg)
-  (define new-memo (make-hash))
-  (define to-union empty)
-  ;; loop over all exprs and add them
-  (for ([(leader _iexprs) (egraph-leader->iexprs eg)])
-    (for ([node (cons leader (enode-children leader))])
-      (define expr (update-en-expr (enode-expr node)))
-
-      (match (hash-ref new-memo expr #f)
-        [#f (hash-set! new-memo expr leader)]
-        [(== leader) void]
-        [old-leader (set! to-union (cons (list old-leader leader) to-union))])))
-  
+  (define to-union (set))
+  (for ([sublist (egraph-to-merge eg)])
+    (for ([pair sublist])
+      (set-add! to-union (map pack-leader pair))))
+  (set-egraph-to-merge! eg empty)
   (for ([pair to-union])
-    (merge-egraph-nodes! eg (first pair) (second pair) #t)
+    (merge-egraph-nodes! eg (first pair) (second pair))
     (dedup-vars! (first pair)))
-  (length to-union))
-
+  (set-count to-union))
 
 ;; For debugging
 (define (check-egraph-valid eg #:loc [location 'check-egraph-valid])
@@ -155,7 +147,7 @@
 ;; Takes a plain mathematical expression, quoted, and returns the egraph
 ;; representing that expression with no expansion or saturation.
 (define (mk-egraph)
-  (egraph 0 (make-hash) (make-hash)))
+  (egraph 0 (make-hash) (make-hash) (list)))
 
 ;; Gets all the pack leaders in the egraph
 (define (egraph-leaders eg)
@@ -178,7 +170,7 @@
     (set! merge-time (+ merge-time (- (current-inexact-milliseconds) begin-time)))))
 
 (define (merge-egraph-nodes-recursive! eg en1 en2 rebuilding-enabled?)    
-  (match-define (egraph _ leader->iexprs expr->parent) eg)
+  (match-define (egraph _ leader->iexprs expr->parent _) eg)
   ;; Operate on the pack leaders in case we were passed a non-leader
   (define l1 (pack-leader en1))
   (define l2 (pack-leader en2))
@@ -206,22 +198,24 @@
            (values l1 l2 old-vars2)
            (values l2 l1 old-vars1)))
 
-     (unless rebuilding-enabled?
-       ;; update expr->parent, discovering parent nodes to merge
-       (define to-merge
-         (update-expr->parent! eg follower-old-vars follower leader))
+     
+     ;; update expr->parent, discovering parent nodes to merge
+     (define to-merge
+       (update-expr->parent! eg follower-old-vars follower leader))
 
-       ;; Now that we have extracted all the information we need from the
-       ;; egraph maps in their current state, we are ready to update
-       ;; them. We need to know which one is the old leader, and which is
-       ;; the new to easily do this, so we branch on which one is eq? to
-       ;; merged-en.
-       (update-leader! eg follower-old-vars follower leader)
+     ;; Now that we have extracted all the information we need from the
+     ;; egraph maps in their current state, we are ready to update
+     ;; them. We need to know which one is the old leader, and which is
+     ;; the new to easily do this, so we branch on which one is eq? to
+     ;; merged-en.
+     (update-leader! eg follower-old-vars follower leader)
 
-       ;; Now the state is consistent for this merge, so we can tackle
-       ;; the other merges.
-       (for ([node-pair (in-list to-merge)] #:when node-pair)
-         (merge-egraph-nodes-recursive! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
+     ;; Now the state is consistent for this merge, so we can tackle
+     ;; the other merges.
+     (if rebuilding-enabled?
+         (set-egraph-to-merge! (cons to-merge (egraph-to-merge eg)))
+         (for ([node-pair (in-list to-merge)] #:when node-pair)
+           (merge-egraph-nodes-recursive! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
 
      (hash-remove! (egraph-leader->iexprs eg) follower)
      
