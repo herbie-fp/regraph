@@ -44,14 +44,14 @@
 ;;#
 ;;#  Note: While the keys of leader->iexprs and the enodes referenced by the keys
 ;;#  of expr->parent are guaranteed to be leaders, the values of expr->parent,
-;;#  and the enodes referenced by the values of leadders->iexprs are not.
+;;#  and the enodes referenced by the values of leaders->iexprs are not.
 ;;#  This decision was made because it would require more state infrastructure
 ;;#  to update these values without having to make a pass over every mapping.
 ;;#
 ;;################################################################################;;
 
 ;; Only ever use leaders as keys!
-(struct egraph (cnt leader->iexprs expr->parent to-merge) #:mutable)
+(struct egraph (cnt leader->iexprs expr->parent upwards-dirty) #:mutable)
 (define merge-time 0)
 
 
@@ -68,10 +68,31 @@
 
 (define (egraph-rebuild-once eg)
   (define to-union (mutable-set))
-  (for ([sublist (egraph-to-merge eg)])
-    (for ([pair sublist] #:when pair)
-      (set-add! to-union (canonicalize-pair pair))))
-  (set-egraph-to-merge! eg empty)
+  (define dirty-unique (list->set (map pack-leader (egraph-upwards-dirty eg))))
+  (set-egraph-upwards-dirty! eg empty)
+  
+  (for ([dirty (in-set dirty-unique)])
+    (define parent-exprs (hash-ref (egraph-leader->iexprs eg) dirty))
+    (define parents
+      (for/list ([parent-expr parent-exprs])
+        (pack-leader (hash-ref (egraph-expr->parent eg) parent-expr))))
+
+    ;; unsure why this line breaks it
+    ;;(for ([parent-expr parent-exprs])
+      ;;(hash-remove! (egraph-expr->parent eg) parent-expr))
+
+    (define expr-hash (make-hash))
+    (for ([parent-expr parent-exprs] [parent parents])
+      (define updated (update-en-expr parent-expr))
+      (define stored-parent (hash-ref expr-hash updated #f))
+      (if stored-parent
+          (set-add! to-union (cons stored-parent parent))
+          (hash-set! expr-hash updated parent)))
+    
+    (for ([(expr parent) (in-hash expr-hash)])
+      (hash-set! (egraph-expr->parent eg) expr parent))
+    (hash-set! (egraph-leader->iexprs eg) dirty (list->mutable-set (hash-keys expr-hash))))
+  
   (for ([pair to-union])
     (merge-egraph-nodes-untimed! eg (car pair) (cdr pair) #t)
     (dedup-vars! (car pair)))
@@ -154,7 +175,7 @@
 ;; Takes a plain mathematical expression, quoted, and returns the egraph
 ;; representing that expression with no expansion or saturation.
 (define (mk-egraph)
-  (egraph 0 (make-hash) (make-hash) (list)))
+  (egraph 0 (make-hash) (make-hash) empty))
 
 ;; Gets all the pack leaders in the egraph
 (define (egraph-leaders eg)
@@ -207,24 +228,25 @@
 
      
      ;; update expr->parent, discovering parent nodes to merge
-     (define to-merge
-       (update-expr->parent! eg follower-old-vars follower leader))
+     (unless rebuilding-enabled?
+       (define to-merge
+         (update-expr->parent! eg follower-old-vars follower leader))
 
-     ;; Now that we have extracted all the information we need from the
-     ;; egraph maps in their current state, we are ready to update
-     ;; them. We need to know which one is the old leader, and which is
-     ;; the new to easily do this, so we branch on which one is eq? to
-     ;; merged-en.
-     (update-leader! eg follower-old-vars follower leader)
+       ;; Now that we have extracted all the information we need from the
+       ;; egraph maps in their current state, we are ready to update
+       ;; them. We need to know which one is the old leader, and which is
+       ;; the new to easily do this, so we branch on which one is eq? to
+       ;; merged-en.
+       (update-leader! eg follower-old-vars follower leader)
 
-     ;; Now the state is consistent for this merge, so we can tackle
-     ;; the other merges.
-     (if rebuilding-enabled?
-         (set-egraph-to-merge! eg (cons to-merge (egraph-to-merge eg)))
-         (for ([node-pair (in-list to-merge)] #:when node-pair)
-           (merge-egraph-nodes-untimed! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
+       ;; Now the state is consistent for this merge, so we can tackle
+       ;; the other merges.
+       (for ([node-pair (in-list to-merge)] #:when node-pair)
+         (merge-egraph-nodes-untimed! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
 
-     (hash-remove! (egraph-leader->iexprs eg) follower)
+     (when rebuilding-enabled?
+       (set-egraph-upwards-dirty! eg (cons leader (egraph-upwards-dirty eg)))
+       (update-leader-non-canonicalize! eg follower-old-vars follower leader))
      
      ;; The other merges can have caused new things to merge with our
      ;; merged-en from before (due to loops in the egraph), so we turn
@@ -272,6 +294,14 @@
                           (for/mutable-set ([expr (in-mutable-set st)])
                             (update-en-expr expr))))))
       (hash-remove! (egraph-leader->iexprs eg) old-leader))))
+
+(define (update-leader-non-canonicalize! eg old-vars old-leader new-leader)
+  (when (not (eq? old-leader new-leader))
+    (let* ([changed-exprs (hash-ref (egraph-leader->iexprs eg) old-leader)])
+      (set-union! (hash-ref! (egraph-leader->iexprs eg) new-leader (mutable-set))
+                  changed-exprs)
+      (hash-remove! (egraph-leader->iexprs eg) old-leader))))
+
 
 ;; Eliminates looping paths in the egraph that contain en. Does not
 ;; work if there are other looping paths.
