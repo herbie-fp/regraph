@@ -36,18 +36,14 @@
 ;;#    equality.
 ;;#
 ;;#
-;;#  Rebuilding breaks:
-;;#  - Number 7
-;;#  - Parent pointers in leader->iexprs. Leader->iexprs still has all the leaders as keys
-;;#  - Congruence closure after merging eclasses, until the end of the rule phase when
-;;#  rebuild fixes it.
-;;#
 ;;#  Note: While the keys of leader->iexprs and the enodes referenced by the keys
 ;;#  of expr->parent are guaranteed to be leaders, the values of expr->parent,
 ;;#  and the enodes referenced by the values of leaders->iexprs are not.
 ;;#  This decision was made because it would require more state infrastructure
 ;;#  to update these values without having to make a pass over every mapping.
 ;;#
+;;#  In rebuilding mode, keys of expr->parent correspond to values of sets in leader->iexprs
+;;#  and old un-canonicalized exprs are not cleaned up.
 ;;################################################################################;;
 
 ;; Only ever use leaders as keys!
@@ -76,11 +72,6 @@
     (define parents
       (for/list ([parent-expr parent-exprs])
         (pack-leader (hash-ref (egraph-expr->parent eg) parent-expr))))
-
-    ;; unsure why this line breaks it
-    ;;(for ([parent-expr parent-exprs])
-      ;;(hash-remove! (egraph-expr->parent eg) parent-expr))
-
     (define expr-hash (make-hash))
     (for ([parent-expr parent-exprs] [parent parents])
       (define updated (update-en-expr parent-expr))
@@ -88,7 +79,9 @@
       (if stored-parent
           (set-add! to-union (cons stored-parent parent))
           (hash-set! expr-hash updated parent)))
-    
+
+    ;; Note that we never garbage collect old expr keys, because they could still be reference by other
+    ;; sets in leader->iexprs
     (for ([(expr parent) (in-hash expr-hash)])
       (hash-set! (egraph-expr->parent eg) expr parent))
     (hash-set! (egraph-leader->iexprs eg) dirty (list->mutable-set (hash-keys expr-hash))))
