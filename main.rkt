@@ -19,7 +19,7 @@
 (define (make-regraph exprs
                       #:limit [limit #f]
                       #:rebuilding-enabled? [rebuilding-enabled? #t])
-  (define eg (mk-egraph))
+  (define eg (mk-egraph rebuilding-enabled?))
   (define ens (for/list ([expr exprs]) (mk-enode-rec! eg expr)))
   (define ex (apply mk-extractor ens))
   (extractor-iterate ex)
