@@ -147,7 +147,7 @@
           (set-egraph-cnt! eg (add1 (egraph-cnt eg)))
           (hash-set! leader->iexprs en (mutable-set))
           (when (egraph-leader->parentpair eg)
-              (hash-set! (egraph-leader->parentpair eg) en (mutable-set)))
+            (hash-set! (egraph-leader->parentpair eg) en (mutable-set)))
           (when (list? expr*)
             (for ([suben (in-list (cdr expr*))])
               (if (egraph-leader->parentpair eg)
@@ -399,9 +399,13 @@
       (pack-filter! (λ (inner-en)
                       (not (list? (enode-expr inner-en))))
                     leader))
-    (when (and (not rebuilding-enabled?) (not (eq? leader leader*)))
-      (update-expr->parent! eg old-vars leader leader*)
-      (update-leader! eg old-vars leader leader*))))
+    (when (not (eq? leader leader*))
+      (cond
+        [rebuilding-enabled?
+         (update-leader-parentpair! eg old-vars leader leader*)]
+        [else
+         (update-expr->parent! eg old-vars leader leader*)
+         (update-leader! eg old-vars leader leader*)]))))
 
 ;; Draws a representation of the egraph to the output file specified
 ;; in the DOT format.
