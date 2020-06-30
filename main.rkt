@@ -124,42 +124,50 @@
   (extractor-iterate (regraph-extractor rg)))
 
 (module+ test
-  (define (test-in-graph exprs rule-pairs check)
+  (define (test-in-graph exprs rule-pairs check rebuilding?)
     (define in-rules
       (for/list ([p rule-pairs])
         (first p)))
     (define out-rules
       (for/list ([p rule-pairs])
         (second p)))
-    (define regraph (make-regraph exprs #:limit 100))
+    (define regraph (make-regraph exprs #:limit 100 #:rebuilding-enabled? rebuilding?))
     ((rule-phase in-rules out-rules) regraph)
+    ((rebuild-phase) regraph)
     (extractor-phase regraph)
     (check-equal? (regraph-extract regraph) check))
 
-  (define basic-rules
-     `([(+ x 0), `x]))
+  (define (test-with rebuilding?)
+    (define basic-rules
+      `([(+ x 0), `x]))
 
+    
+    (test-in-graph `((+ a 0)) basic-rules `(a) rebuilding?)
+
+
+    ;; test that upward merging did its job
+    (define upwards-rules
+      `([(a 1 2) 3]
+        [(b (a 1 2) 4) 6]))
+
+    
+    (test-in-graph
+     `((b (a 1 2) 4))
+     upwards-rules
+     `(6)
+     rebuilding?)
+    
+    (test-in-graph
+     `((b 3 4))
+     upwards-rules
+     `((b 3 4))
+     rebuilding?)
+    (test-in-graph
+     `((b 3 4) (b (a 1 2) 4))
+     upwards-rules
+     `(6 6)
+     rebuilding?))
   
-  (test-in-graph `((+ a 0)) basic-rules `(a))
-
-
-  ;; test that upward merging did its job
-  (define upwards-rules
-    `([(a 1 2) 3]
-      [(b (a 1 2) 4) 6]))
-
-  
-  (test-in-graph
-   `((b (a 1 2) 4))
-   upwards-rules
-   `(6))
-  
-  (test-in-graph
-   `((b 3 4))
-   upwards-rules
-   `((b 3 4)))
-  (test-in-graph
-   `((b 3 4) (b (a 1 2) 4))
-   upwards-rules
-   `(6 6)))
+  (test-with #f)
+  (test-with #t))
 
