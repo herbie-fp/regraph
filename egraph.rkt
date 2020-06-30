@@ -36,46 +36,58 @@
 ;;#    equality.
 ;;#
 ;;#
-;;#  Rebuilding breaks:
-;;#  - Number 7
-;;#  - Parent pointers in leader->iexprs. Leader->iexprs still has all the leaders as keys
-;;#  - Congruence closure after merging eclasses, until the end of the rule phase when
-;;#  rebuild fixes it.
-;;#
 ;;#  Note: While the keys of leader->iexprs and the enodes referenced by the keys
 ;;#  of expr->parent are guaranteed to be leaders, the values of expr->parent,
-;;#  and the enodes referenced by the values of leadders->iexprs are not.
+;;#  and the enodes referenced by the values of leaders->iexprs are not.
 ;;#  This decision was made because it would require more state infrastructure
 ;;#  to update these values without having to make a pass over every mapping.
 ;;#
+;;#  In rebuilding mode, leader->parentpair is used instead of leader->iexprs
 ;;################################################################################;;
 
 ;; Only ever use leaders as keys!
-(struct egraph (cnt leader->iexprs expr->parent) #:mutable)
+(struct parentpair (parent expr))
+(struct egraph (cnt leader->iexprs expr->parent upwards-dirty leader->parentpair) #:mutable)
 (define merge-time 0)
-
 
 (define (egraph-rebuild eg)
   (unless (equal? (egraph-rebuild-once eg) 0)
     (egraph-rebuild eg)))
 
 (define (egraph-rebuild-once eg)
-  (define new-memo (make-hash))
-  (define to-union empty)
-  ;; loop over all exprs and add them
-  (for ([(leader _iexprs) (egraph-leader->iexprs eg)])
-    (for ([node (cons leader (enode-children leader))])
-      (define expr (update-en-expr (enode-expr node)))
+  (define to-union (mutable-set))
+  (define dirty-unique (list->set (map pack-leader (egraph-upwards-dirty eg))))
 
-      (match (hash-ref new-memo expr #f)
-        [#f (hash-set! new-memo expr leader)]
-        [(== leader) void]
-        [old-leader (set! to-union (cons (list old-leader leader) to-union))])))
+  ;; reset the worklist
+  (set-egraph-upwards-dirty! eg empty)
+  
+  (for ([dirty-enode (in-set dirty-unique)])
+    (define parent-exprs (hash-ref (egraph-leader->parentpair eg) dirty-enode))
+  
+    (define expr-hash (make-hash))
+    (for ([parente parent-exprs])
+      (define parent (pack-leader (parentpair-parent parente)))
+      (define parent-expr (parentpair-expr parente))
+
+      (hash-remove! (egraph-expr->parent eg) parent-expr)
+      
+      (define updated (update-en-expr parent-expr))
+      (define stored-parent (hash-ref expr-hash updated #f))
+      (if stored-parent
+          (set-add! to-union (cons stored-parent parent))
+          (hash-set! expr-hash updated parent)))
+
+    (define new-pairs (mutable-set))
+    (for ([(updated parent) (in-hash expr-hash)])
+      (hash-set! (egraph-expr->parent eg) updated parent)
+      (set-add! new-pairs (parentpair parent updated)))
+    
+    (hash-set! (egraph-leader->parentpair eg) dirty-enode new-pairs))
   
   (for ([pair to-union])
-    (merge-egraph-nodes! eg (first pair) (second pair) #t)
-    (dedup-vars! (first pair)))
-  (length to-union))
+    (merge-egraph-nodes-untimed! eg (car pair) (cdr pair) #t)
+    (dedup-vars! (car pair)))
+  (set-count to-union))
 
 
 ;; For debugging
@@ -134,10 +146,15 @@
                [leader->iexprs (egraph-leader->iexprs eg)])
           (set-egraph-cnt! eg (add1 (egraph-cnt eg)))
           (hash-set! leader->iexprs en (mutable-set))
+          (when (egraph-leader->parentpair eg)
+            (hash-set! (egraph-leader->parentpair eg) en (mutable-set)))
           (when (list? expr*)
             (for ([suben (in-list (cdr expr*))])
-              (set-add! (hash-ref leader->iexprs (pack-leader suben))
-                        expr*)))
+              (if (egraph-leader->parentpair eg)
+                  (set-add! (hash-ref (egraph-leader->parentpair eg) (pack-leader suben))
+                        (parentpair en expr*))
+                  (set-add! (hash-ref leader->iexprs (pack-leader suben))
+                            expr*))))
           (hash-set! (egraph-expr->parent eg)
                      expr*
                      en)
@@ -154,8 +171,9 @@
 
 ;; Takes a plain mathematical expression, quoted, and returns the egraph
 ;; representing that expression with no expansion or saturation.
-(define (mk-egraph)
-  (egraph 0 (make-hash) (make-hash)))
+(define (mk-egraph rebuilding-enabled?)
+  (egraph 0 (make-hash) (make-hash) empty
+          (if rebuilding-enabled? (make-hash) #f)))
 
 ;; Gets all the pack leaders in the egraph
 (define (egraph-leaders eg)
@@ -174,11 +192,11 @@
 (define (merge-egraph-nodes! eg en1 en2 rebuilding-enabled?)
   (define begin-time (current-inexact-milliseconds))
   (begin0
-      (merge-egraph-nodes-recursive! eg en1 en2 rebuilding-enabled?)
+      (merge-egraph-nodes-untimed! eg en1 en2 rebuilding-enabled?)
     (set! merge-time (+ merge-time (- (current-inexact-milliseconds) begin-time)))))
 
-(define (merge-egraph-nodes-recursive! eg en1 en2 rebuilding-enabled?)    
-  (match-define (egraph _ leader->iexprs expr->parent) eg)
+(define (merge-egraph-nodes-untimed! eg en1 en2 rebuilding-enabled?)    
+  (match-define (egraph _ leader->iexprs expr->parent _ _) eg)
   ;; Operate on the pack leaders in case we were passed a non-leader
   (define l1 (pack-leader en1))
   (define l2 (pack-leader en2))
@@ -206,8 +224,9 @@
            (values l1 l2 old-vars2)
            (values l2 l1 old-vars1)))
 
+     
+     ;; update expr->parent, discovering parent nodes to merge
      (unless rebuilding-enabled?
-       ;; update expr->parent, discovering parent nodes to merge
        (define to-merge
          (update-expr->parent! eg follower-old-vars follower leader))
 
@@ -221,9 +240,11 @@
        ;; Now the state is consistent for this merge, so we can tackle
        ;; the other merges.
        (for ([node-pair (in-list to-merge)] #:when node-pair)
-         (merge-egraph-nodes-recursive! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
+         (merge-egraph-nodes-untimed! eg (car node-pair) (cdr node-pair) rebuilding-enabled?)))
 
-     (hash-remove! (egraph-leader->iexprs eg) follower)
+     (when rebuilding-enabled?
+       (set-egraph-upwards-dirty! eg (cons leader (egraph-upwards-dirty eg)))
+       (update-leader-parentpair! eg follower-old-vars follower leader))
      
      ;; The other merges can have caused new things to merge with our
      ;; merged-en from before (due to loops in the egraph), so we turn
@@ -271,6 +292,15 @@
                           (for/mutable-set ([expr (in-mutable-set st)])
                             (update-en-expr expr))))))
       (hash-remove! (egraph-leader->iexprs eg) old-leader))))
+
+(define (update-leader-parentpair! eg old-vars old-leader new-leader)
+  (when (not (eq? old-leader new-leader))
+    (let* ([changed-exprs (hash-ref (egraph-leader->parentpair eg) old-leader)])
+      (set-union! (hash-ref! (egraph-leader->parentpair eg) new-leader (mutable-set))
+                  changed-exprs)
+      (hash-remove! (egraph-leader->iexprs eg) old-leader)
+      (hash-remove! (egraph-leader->parentpair eg) old-leader))))
+
 
 ;; Eliminates looping paths in the egraph that contain en. Does not
 ;; work if there are other looping paths.
@@ -369,9 +399,13 @@
       (pack-filter! (λ (inner-en)
                       (not (list? (enode-expr inner-en))))
                     leader))
-    (when (and (not rebuilding-enabled?) (not (eq? leader leader*)))
-      (update-expr->parent! eg old-vars leader leader*)
-      (update-leader! eg old-vars leader leader*))))
+    (when (not (eq? leader leader*))
+      (cond
+        [rebuilding-enabled?
+         (update-leader-parentpair! eg old-vars leader leader*)]
+        [else
+         (update-expr->parent! eg old-vars leader leader*)
+         (update-leader! eg old-vars leader leader*)]))))
 
 ;; Draws a representation of the egraph to the output file specified
 ;; in the DOT format.
