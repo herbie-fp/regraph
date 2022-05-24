@@ -11,5 +11,7 @@
     "Pavel Panchekha"))
 
 ;; Dependencies
-(define deps '(("base" #:version "7.0")))
+(define deps '("math-lib"
+               "plot-lib"
+               ("base" #:version "7.0")))
 (define build-deps '("rackunit-lib"))
